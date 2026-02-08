@@ -96,20 +96,14 @@ npx -y install-mcp apple-mcp --client cursor
 <details>
 <summary>Click if you're feeling adventurous</summary>
 
-First, get bun (if you don't have it already):
-
-```bash
-brew install oven-sh/bun/bun
-```
-
-Then add this to your `claude_desktop_config.json`:
+Add this to your `claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
     "apple-mcp": {
-      "command": "bunx",
-      "args": ["--no-cache", "apple-mcp@latest"]
+      "command": "npx",
+      "args": ["-y", "apple-mcp@latest"]
     }
   }
 }
@@ -120,13 +114,13 @@ Then add this to your `claude_desktop_config.json`:
 ### Option 3: Claude Code
 
 ```bash
-claude mcp add --transport stdio apple-mcp -- bunx --no-cache apple-mcp@latest
+claude mcp add --transport stdio apple-mcp -- npx -y apple-mcp@latest
 ```
 
 Or to use the Brightline fork:
 
 ```bash
-claude mcp add --transport stdio apple-mcp -- bunx --no-cache github:brightline/apple-mcp#main
+claude mcp add --transport stdio apple-mcp -- npx -y github:brightline/apple-mcp#main
 ```
 
 ### Option 4: Brightline Fork (Latest from main)
@@ -137,8 +131,8 @@ If you want to run the latest commit from the Brightline fork:
 {
   "mcpServers": {
     "apple-mcp": {
-      "command": "bunx",
-      "args": ["--no-cache", "github:brightline/apple-mcp#main"]
+      "command": "npx",
+      "args": ["-y", "github:brightline/apple-mcp#main"]
     }
   }
 }
@@ -150,8 +144,8 @@ Or pin to a specific commit:
 {
   "mcpServers": {
     "apple-mcp": {
-      "command": "bunx",
-      "args": ["--no-cache", "github:brightline/apple-mcp#859a9c8"]
+      "command": "npx",
+      "args": ["-y", "github:brightline/apple-mcp#859a9c8"]
     }
   }
 }
