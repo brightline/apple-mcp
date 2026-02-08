@@ -65,86 +65,88 @@ func exitError(_ message: String) -> Never {
 
 // MARK: - EventKit Access
 
+let permissionFixSteps =
+	"To fix, grant calendar access to the app running this server:\n" +
+	"1. Open System Settings > Privacy & Security > Calendars\n" +
+	"2. Enable access for Claude Desktop (or your terminal app)\n" +
+	"   - If Claude Desktop is not listed, try toggling Full Disk Access for it,\n" +
+	"     or run: tccutil reset Calendar com.anthropic.claudedesktop\n" +
+	"3. Fully quit and relaunch the app, then try again"
+
 func ensureAccess(store: EKEventStore) {
-	let status: EKAuthorizationStatus
-	if #available(macOS 14.0, *) {
-		status = EKEventStore.authorizationStatus(for: .event)
-	} else {
-		status = EKEventStore.authorizationStatus(for: .event)
-	}
+	let status = EKEventStore.authorizationStatus(for: .event)
+	fputs("calendar-helper: EKAuthorizationStatus = \(statusName(status))\n", stderr)
 
 	switch status {
-	case .authorized:
-		return // Already have access
-	case .fullAccess:
-		return // macOS 14+ full access granted
+	case .authorized, .fullAccess:
+		// Status looks good — verify we can actually read data (see below)
+		break
 	case .denied:
-		exitError(
-			"Calendar access was denied. To fix:\n" +
-			"1. Open System Settings > Privacy & Security > Calendars\n" +
-			"2. Enable access for your terminal app (e.g. Terminal, iTerm, Warp)\n" +
-			"3. Restart your terminal and try again"
-		)
+		exitError("Calendar access was denied.\n\(permissionFixSteps)")
 	case .restricted:
 		exitError("Calendar access is restricted by a system policy (e.g. MDM profile).")
-	case .notDetermined:
-		// First time — request access
-		let semaphore = DispatchSemaphore(value: 0)
-		var granted = false
-
-		if #available(macOS 14.0, *) {
-			store.requestFullAccessToEvents { g, error in
-				granted = g
-				if let error = error {
-					fputs("EventKit access error: \(error.localizedDescription)\n", stderr)
-				}
-				semaphore.signal()
-			}
-		} else {
-			store.requestAccess(to: .event) { g, error in
-				granted = g
-				if let error = error {
-					fputs("EventKit access error: \(error.localizedDescription)\n", stderr)
-				}
-				semaphore.signal()
-			}
-		}
-
-		semaphore.wait()
-		if !granted {
-			exitError(
-				"Calendar access was not granted. To fix:\n" +
-				"1. Open System Settings > Privacy & Security > Calendars\n" +
-				"2. Enable access for your terminal app\n" +
-				"3. Restart your terminal and try again"
-			)
-		}
 	case .writeOnly:
 		exitError(
 			"Calendar access is write-only — full access is required to read events.\n" +
-			"1. Open System Settings > Privacy & Security > Calendars\n" +
-			"2. Change access for your terminal app from 'Add Events Only' to 'Full Access'\n" +
-			"3. Restart your terminal and try again"
+			"In System Settings > Privacy & Security > Calendars, change from\n" +
+			"'Add Events Only' to 'Full Access' for your app."
 		)
+	case .notDetermined:
+		requestAccessOrExit(store: store)
 	@unknown default:
-		// Future status — try requesting anyway
-		let semaphore = DispatchSemaphore(value: 0)
-		var granted = false
-		if #available(macOS 14.0, *) {
-			store.requestFullAccessToEvents { g, _ in
-				granted = g
-				semaphore.signal()
+		requestAccessOrExit(store: store)
+	}
+
+	// Sanity check: macOS can report "authorized" but return empty data when the
+	// parent app (e.g. Claude Desktop) lacks its own TCC calendar permission.
+	let calendars = store.calendars(for: .event)
+	fputs("calendar-helper: found \(calendars.count) calendar source(s)\n", stderr)
+	if calendars.isEmpty {
+		exitError(
+			"Calendar access appears granted but no calendars were returned.\n" +
+			"This usually means the parent app (e.g. Claude Desktop) needs calendar\n" +
+			"permission separately from the terminal.\n\(permissionFixSteps)"
+		)
+	}
+}
+
+func requestAccessOrExit(store: EKEventStore) {
+	let semaphore = DispatchSemaphore(value: 0)
+	var granted = false
+
+	if #available(macOS 14.0, *) {
+		store.requestFullAccessToEvents { g, error in
+			granted = g
+			if let error = error {
+				fputs("EventKit access error: \(error.localizedDescription)\n", stderr)
 			}
-		} else {
-			store.requestAccess(to: .event) { g, _ in
-				granted = g
-				semaphore.signal()
+			semaphore.signal()
+		}
+	} else {
+		store.requestAccess(to: .event) { g, error in
+			granted = g
+			if let error = error {
+				fputs("EventKit access error: \(error.localizedDescription)\n", stderr)
 			}
+			semaphore.signal()
 		}
-		semaphore.wait()
-		if !granted {
-			exitError("Calendar access denied (unknown authorization status).")
-		}
+	}
+
+	semaphore.wait()
+	if !granted {
+		exitError("Calendar access was not granted.\n\(permissionFixSteps)")
+	}
+}
+
+func statusName(_ status: EKAuthorizationStatus) -> String {
+	switch status {
+	case .notDetermined: return "notDetermined"
+	case .restricted: return "restricted"
+	case .denied: return "denied"
+	case .authorized: return "authorized"
+	case .fullAccess: return "fullAccess"
+	case .writeOnly: return "writeOnly"
+	@unknown default: return "unknown(\(status.rawValue))"
 	}
 }
 
