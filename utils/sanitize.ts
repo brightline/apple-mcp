@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runAppleScript } from "run-applescript";
 
-const execFileAsync = promisify(execFile);
+export const execFileAsync = promisify(execFile);
 
 /**
  * Escapes a string for safe interpolation inside AppleScript double-quoted strings.
