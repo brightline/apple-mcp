@@ -601,7 +601,8 @@ const calendar = {
     openEvent,
     getEvents,
     createEvent,
-    requestCalendarAccess
+    requestCalendarAccess,
+    getCalendarNames
 };
 
 export default calendar;

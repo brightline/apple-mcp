@@ -186,8 +186,8 @@ const CALENDAR_TOOL: Tool = {
     properties: {
       operation: {
         type: "string",
-        description: "Operation to perform: 'search', 'open', 'list', or 'create'",
-        enum: ["search", "open", "list", "create"]
+        description: "Operation to perform: 'search', 'open', 'list', 'create', or 'calendars' (list available calendars)",
+        enum: ["search", "open", "list", "create", "calendars"]
       },
       searchText: {
         type: "string",
