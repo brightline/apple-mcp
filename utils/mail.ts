@@ -112,10 +112,80 @@ async function requestMailAccess(): Promise<{ hasAccess: boolean; message: strin
 const SCAN_PER_MAILBOX = 100;
 
 /**
+ * Build AppleScript to scan a single account's mailbox by index.
+ * Used by getUnreadMails and searchMails to issue one AppleScript per account.
+ */
+function buildScanScript(opts: {
+	accountName: string;
+	mailbox: string;
+	maxEmails: number;
+	unreadOnly?: boolean;
+	searchTerm?: string;
+}): string {
+	const acctName = sanitizeForAppleScript(opts.accountName);
+	const mbName = sanitizeForAppleScript(opts.mailbox);
+	const filterCheck = opts.unreadOnly
+		? `if read status of msg is false then`
+		: opts.searchTerm
+			? `if msgSubject contains "${sanitizeForAppleScript(opts.searchTerm)}" then`
+			: "";
+	const filterEnd = filterCheck ? "end if" : "";
+	const needsSubjectVar = opts.searchTerm ? `set msgSubject to subject of msg` : "";
+
+	return `
+tell application "Mail"
+	set outputText to ""
+	set emailCount to 0
+
+	try
+		set targetAccount to first account whose name is "${acctName}"
+		set mb to mailbox "${mbName}" of targetAccount
+
+		repeat with i from 1 to ${SCAN_PER_MAILBOX}
+			if emailCount >= ${opts.maxEmails} then exit repeat
+
+			try
+				set msg to message i of mb
+				${needsSubjectVar}
+				${filterCheck}
+					set msgSubject to my cleanField(subject of msg)
+					set msgSender to my cleanField(sender of msg)
+					set msgDate to my cleanField((date sent of msg) as string)
+
+					set isReadStr to "true"
+					if read status of msg is false then set isReadStr to "false"
+
+					set msgContent to "[Content not available]"
+					try
+						set rawContent to content of msg
+						if rawContent is not missing value then
+							if (length of rawContent) > ${CONFIG.MAX_CONTENT_PREVIEW} then
+								set rawContent to (text 1 thru ${CONFIG.MAX_CONTENT_PREVIEW} of rawContent) & "..."
+							end if
+							set msgContent to my cleanField(rawContent)
+						end if
+					end try
+
+					set outputText to outputText & msgSubject & tab & msgSender & tab & msgDate & tab & msgContent & tab & isReadStr & tab & "${acctName}/${mbName}" & linefeed
+					set emailCount to emailCount + 1
+				${filterEnd}
+			on error
+				-- Past end of messages
+				exit repeat
+			end try
+		end repeat
+	on error errMsg
+		return "ERROR:" & errMsg
+	end try
+
+	return outputText
+end tell
+${CLEAN_FIELD_HANDLER}`;
+}
+
+/**
  * Get unread emails from Mail app.
- * By default checks only INBOX of each account (fast across many accounts).
- * When a specific mailbox is given, checks that mailbox instead.
- * Scans recent messages by index — never uses "whose" filters which time out.
+ * Runs a separate AppleScript per account sequentially to avoid overwhelming Mail.
  */
 async function getUnreadMails(
 	limit = 10,
@@ -131,76 +201,30 @@ async function getUnreadMails(
 		const maxEmails = Math.min(limit, CONFIG.MAX_EMAILS);
 		const targetMailbox = mailbox || "INBOX";
 
-		const acctFilter = account
-			? `set acctList to {first account whose name is "${sanitizeForAppleScript(account)}"}`
-			: `set acctList to every account`;
+		const accounts = account ? [account] : await getAccounts();
+		const allEmails: EmailMessage[] = [];
 
-		const script = `
-tell application "Mail"
-	set outputText to ""
-	set emailCount to 0
+		for (const acctName of accounts) {
+			if (allEmails.length >= maxEmails) break;
 
-	try
-		${acctFilter}
+			try {
+				const script = buildScanScript({
+					accountName: acctName,
+					mailbox: targetMailbox,
+					maxEmails: maxEmails - allEmails.length,
+					unreadOnly: true,
+				});
 
-		repeat with acct in acctList
-			if emailCount >= ${maxEmails} then exit repeat
-
-			try
-				set acctName to name of acct
-
-				-- Target specific mailbox directly (default: INBOX)
-				set mb to mailbox "${sanitizeForAppleScript(targetMailbox)}" of acct
-
-				-- Scan recent messages by index (no "count" or "whose" on large mailboxes)
-				repeat with i from 1 to ${SCAN_PER_MAILBOX}
-					if emailCount >= ${maxEmails} then exit repeat
-
-					try
-						set msg to message i of mb
-						if read status of msg is false then
-							set msgSubject to my cleanField(subject of msg)
-							set msgSender to my cleanField(sender of msg)
-							set msgDate to my cleanField((date sent of msg) as string)
-
-							set msgContent to "[Content not available]"
-							try
-								set rawContent to content of msg
-								if rawContent is not missing value then
-									if (length of rawContent) > ${CONFIG.MAX_CONTENT_PREVIEW} then
-										set rawContent to (text 1 thru ${CONFIG.MAX_CONTENT_PREVIEW} of rawContent) & "..."
-									end if
-									set msgContent to my cleanField(rawContent)
-								end if
-							end try
-
-							set outputText to outputText & msgSubject & tab & msgSender & tab & msgDate & tab & msgContent & tab & "false" & tab & my cleanField(acctName & "/" & "${sanitizeForAppleScript(targetMailbox)}") & linefeed
-							set emailCount to emailCount + 1
-						end if
-					on error errMsg
-						-- Past end of messages or problematic message — move to next account
-						exit repeat
-					end try
-				end repeat
-			on error
-				-- Skip accounts that don't have this mailbox
-			end try
-		end repeat
-	on error errMsg
-		return "ERROR:" & errMsg
-	end try
-
-	return outputText
-end tell
-${CLEAN_FIELD_HANDLER}`;
-
-		const result = (await runAppleScriptWithTimeout(script, CONFIG.TIMEOUT_MS)) as string;
-
-		if (result && result.startsWith("ERROR:")) {
-			throw new Error(result.substring(6));
+				const result = (await runAppleScriptWithTimeout(script, CONFIG.TIMEOUT_MS)) as string;
+				if (result && !result.startsWith("ERROR:")) {
+					allEmails.push(...parseEmailResults(result));
+				}
+			} catch (error) {
+				console.error(`Error scanning ${acctName}: ${error instanceof Error ? error.message : String(error)}`);
+			}
 		}
 
-		return parseEmailResults(result);
+		return allEmails.slice(0, maxEmails);
 	} catch (error) {
 		console.error(
 			`Error getting unread emails: ${error instanceof Error ? error.message : String(error)}`,
@@ -210,7 +234,8 @@ ${CLEAN_FIELD_HANDLER}`;
 }
 
 /**
- * Search for emails by search term
+ * Search for emails by search term.
+ * Runs a separate AppleScript per account sequentially.
  */
 async function searchMails(
 	searchTerm: string,
@@ -227,66 +252,30 @@ async function searchMails(
 		}
 
 		const maxEmails = Math.min(limit, CONFIG.MAX_EMAILS);
-		const cleanSearchTerm = sanitizeForAppleScript(searchTerm);
+		const accounts = await getAccounts();
+		const allEmails: EmailMessage[] = [];
 
-		const script = `
-tell application "Mail"
-	set outputText to ""
-	set emailCount to 0
-	set searchTerm to "${cleanSearchTerm}"
+		for (const acctName of accounts) {
+			if (allEmails.length >= maxEmails) break;
 
-	-- Search INBOX of each account by index, matching subject locally
-	repeat with acct in accounts
-		if emailCount >= ${maxEmails} then exit repeat
+			try {
+				const script = buildScanScript({
+					accountName: acctName,
+					mailbox: "INBOX",
+					maxEmails: maxEmails - allEmails.length,
+					searchTerm,
+				});
 
-		try
-			set acctName to name of acct
-			set mb to mailbox "INBOX" of acct
+				const result = (await runAppleScriptWithTimeout(script, CONFIG.TIMEOUT_MS)) as string;
+				if (result && !result.startsWith("ERROR:")) {
+					allEmails.push(...parseEmailResults(result));
+				}
+			} catch (error) {
+				console.error(`Error searching ${acctName}: ${error instanceof Error ? error.message : String(error)}`);
+			}
+		}
 
-			repeat with i from 1 to ${SCAN_PER_MAILBOX}
-				if emailCount >= ${maxEmails} then exit repeat
-
-				try
-					set msg to message i of mb
-					set msgSubject to subject of msg
-					if msgSubject contains searchTerm then
-						set cleanSubject to my cleanField(msgSubject)
-						set msgSender to my cleanField(sender of msg)
-						set msgDate to my cleanField((date sent of msg) as string)
-
-						set isReadStr to "true"
-						if read status of msg is false then set isReadStr to "false"
-
-						set msgContent to "[Content not available]"
-						try
-							set rawContent to content of msg
-							if rawContent is not missing value then
-								if (length of rawContent) > ${CONFIG.MAX_CONTENT_PREVIEW} then
-									set rawContent to (text 1 thru ${CONFIG.MAX_CONTENT_PREVIEW} of rawContent) & "..."
-								end if
-								set msgContent to my cleanField(rawContent)
-							end if
-						end try
-
-						set outputText to outputText & cleanSubject & tab & msgSender & tab & msgDate & tab & msgContent & tab & isReadStr & tab & my cleanField(acctName & "/INBOX") & linefeed
-						set emailCount to emailCount + 1
-					end if
-				on error
-					-- Past end of messages — move to next account
-					exit repeat
-				end try
-			end repeat
-		on error
-			-- Skip accounts without INBOX
-		end try
-	end repeat
-
-	return outputText
-end tell
-${CLEAN_FIELD_HANDLER}`;
-
-		const result = (await runAppleScriptWithTimeout(script, CONFIG.TIMEOUT_MS)) as string;
-		return parseEmailResults(result);
+		return allEmails.slice(0, maxEmails);
 	} catch (error) {
 		console.error(
 			`Error searching emails: ${error instanceof Error ? error.message : String(error)}`,
@@ -523,53 +512,11 @@ async function getLatestMails(
 
 		const maxEmails = Math.min(limit, CONFIG.MAX_EMAILS);
 
-		const script = `
-tell application "Mail"
-	set outputText to ""
-	set emailCount to 0
-
-	try
-		set targetAccount to first account whose name is "${sanitizeForAppleScript(account)}"
-		set mb to mailbox "INBOX" of targetAccount
-
-		-- Scan recent messages by index (no "count" or "whose")
-		repeat with i from 1 to ${SCAN_PER_MAILBOX}
-			if emailCount >= ${maxEmails} then exit repeat
-
-			try
-				set msg to message i of mb
-				set msgSubject to my cleanField(subject of msg)
-				set msgSender to my cleanField(sender of msg)
-				set msgDate to my cleanField((date sent of msg) as string)
-
-				set isReadStr to "true"
-				if read status of msg is false then set isReadStr to "false"
-
-				set msgContent to "[Content not available]"
-				try
-					set rawContent to content of msg
-					if rawContent is not missing value then
-						if (length of rawContent) > ${CONFIG.MAX_CONTENT_PREVIEW} then
-							set rawContent to (text 1 thru ${CONFIG.MAX_CONTENT_PREVIEW} of rawContent) & "..."
-						end if
-						set msgContent to my cleanField(rawContent)
-					end if
-				end try
-
-				set outputText to outputText & msgSubject & tab & msgSender & tab & msgDate & tab & msgContent & tab & isReadStr & tab & "INBOX" & linefeed
-				set emailCount to emailCount + 1
-			on error
-				-- Past end of messages
-				exit repeat
-			end try
-		end repeat
-	on error errMsg
-		return "ERROR:" & errMsg
-	end try
-
-	return outputText
-end tell
-${CLEAN_FIELD_HANDLER}`;
+		const script = buildScanScript({
+			accountName: account,
+			mailbox: "INBOX",
+			maxEmails,
+		});
 
 		const result = (await runAppleScriptWithTimeout(script, CONFIG.TIMEOUT_MS)) as string;
 
