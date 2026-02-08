@@ -1,4 +1,5 @@
 import { runAppleScript } from "run-applescript";
+import { sanitizeForAppleScript } from "./sanitize.ts";
 
 // Maximum number of top results to scrape
 const MAX_RESULTS = 3;
@@ -89,7 +90,7 @@ async function openSafariWithTimeout(): Promise<string | void> {
 async function setUserAgent(userAgent: string): Promise<void> {
   await runAppleScript(`
     tell application "Safari"
-      set the user agent of document 1 to "${userAgent.replace(/"/g, '\\"')}"
+      set the user agent of document 1 to "${sanitizeForAppleScript(userAgent)}"
     end tell
   `);
 }
@@ -100,7 +101,7 @@ async function setUserAgent(userAgent: string): Promise<void> {
 async function navigateToUrl(url: string): Promise<void> {
   await runAppleScript(`
     tell application "Safari"
-      set URL of document 1 to "${url.replace(/"/g, '\\"')}"
+      set URL of document 1 to "${sanitizeForAppleScript(url)}"
     end tell
   `);
 }
@@ -148,7 +149,7 @@ async function extractSearchResults(
 
   const resultString = await runAppleScript(`
     tell application "Safari"
-      set jsResult to do JavaScript "${jsScript.replace(/"/g, '\\"').replace(/\n/g, " ")}" in document 1
+      set jsResult to do JavaScript "${sanitizeForAppleScript(jsScript)}" in document 1
       return jsResult
     end tell
   `);
@@ -247,7 +248,7 @@ async function extractPageContent(): Promise<string> {
 
   const content = await runAppleScript(`
     tell application "Safari"
-      set pageContent to do JavaScript "${jsScript.replace(/"/g, '\\"').replace(/\n/g, " ")}" in document 1
+      set pageContent to do JavaScript "${sanitizeForAppleScript(jsScript)}" in document 1
       return pageContent
     end tell
   `);

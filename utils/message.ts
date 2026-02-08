@@ -1,9 +1,6 @@
 import {runAppleScript} from 'run-applescript';
-import { promisify } from 'node:util';
-import { exec } from 'node:child_process';
 import { access } from 'node:fs/promises';
-
-const execAsync = promisify(exec);
+import { sanitizeForAppleScript, validateHomePath, execSqliteQuery } from './sanitize.ts';
 
 // Configuration
 const CONFIG = {
@@ -70,12 +67,11 @@ function normalizePhoneNumber(phone: string): string[] {
 }
 
 async function sendMessage(phoneNumber: string, message: string) {
-    const escapedMessage = message.replace(/"/g, '\\"');
     const result = await runAppleScript(`
 tell application "Messages"
     set targetService to 1st service whose service type = iMessage
-    set targetBuddy to buddy "${phoneNumber}"
-    send "${escapedMessage}" to targetBuddy
+    set targetBuddy to buddy "${sanitizeForAppleScript(phoneNumber)}"
+    send "${sanitizeForAppleScript(message)}" to targetBuddy
 end tell`);
     return result;
 }
@@ -91,12 +87,13 @@ interface Message {
 
 async function checkMessagesDBAccess(): Promise<boolean> {
     try {
-        const dbPath = `${process.env.HOME}/Library/Messages/chat.db`;
+        const home = validateHomePath();
+        const dbPath = `${home}/Library/Messages/chat.db`;
         await access(dbPath);
-        
+
         // Additional check - try to query the database
-        await execAsync(`sqlite3 "${dbPath}" "SELECT 1;"`);
-        
+        await execSqliteQuery(dbPath, "SELECT 1;");
+
         return true;
     } catch (error) {
         console.error(`
@@ -241,12 +238,13 @@ async function getAttachmentPaths(messageId: number): Promise<string[]> {
             WHERE message_attachment_join.message_id = ${messageId}
         `;
         
-        const { stdout } = await execAsync(`sqlite3 -json "${process.env.HOME}/Library/Messages/chat.db" "${query}"`);
-        
+        const home = validateHomePath();
+        const stdout = await execSqliteQuery(`${home}/Library/Messages/chat.db`, query);
+
         if (!stdout.trim()) {
             return [];
         }
-        
+
         const attachments = JSON.parse(stdout) as { filename: string }[];
         return attachments.map(a => a.filename).filter(Boolean);
     } catch (error) {
@@ -304,10 +302,11 @@ async function readMessages(phoneNumber: string, limit = 10): Promise<Message[]>
         `;
 
         // Execute query with retries
-        const { stdout } = await retryOperation(() => 
-            execAsync(`sqlite3 -json "${process.env.HOME}/Library/Messages/chat.db" "${query}"`)
+        const home = validateHomePath();
+        const stdout = await retryOperation(() =>
+            execSqliteQuery(`${home}/Library/Messages/chat.db`, query)
         );
-        
+
         if (!stdout.trim()) {
             console.error("No messages found in database for the given phone number");
             return [];
@@ -430,10 +429,11 @@ async function getUnreadMessages(limit = 10): Promise<Message[]> {
         `;
 
         // Execute query with retries
-        const { stdout } = await retryOperation(() => 
-            execAsync(`sqlite3 -json "${process.env.HOME}/Library/Messages/chat.db" "${query}"`)
+        const home = validateHomePath();
+        const stdout = await retryOperation(() =>
+            execSqliteQuery(`${home}/Library/Messages/chat.db`, query)
         );
-        
+
         if (!stdout.trim()) {
             console.error("No unread messages found");
             return [];

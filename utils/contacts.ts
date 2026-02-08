@@ -1,4 +1,5 @@
 import { runAppleScript } from "run-applescript";
+import { sanitizeForAppleScript } from "./sanitize.ts";
 
 // Configuration
 const CONFIG = {
@@ -143,7 +144,7 @@ async function findNumber(name: string): Promise<string[]> {
 		const script = `
 tell application "Contacts"
     set matchedPhones to {}
-    set searchText to "${searchName}"
+    set searchText to "${sanitizeForAppleScript(searchName)}"
 
     -- Get a limited number of people to search through
     set allPeople to people
@@ -340,7 +341,7 @@ async function findContactByPhone(phoneNumber: string): Promise<string | null> {
 		const script = `
 tell application "Contacts"
     set foundName to ""
-    set searchPhone to "${searchNumber}"
+    set searchPhone to "${sanitizeForAppleScript(searchNumber)}"
 
     -- Get a limited number of people to search through
     set allPeople to people

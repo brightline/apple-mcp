@@ -7,6 +7,9 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { runAppleScript } from "run-applescript";
 import tools from "./tools";
+import { sanitizeForAppleScript } from "./utils/sanitize.ts";
+import { isWriteOperation } from "./utils/config.ts";
+import { requestConfirmation } from "./utils/confirmation.ts";
 
 
 // Safe mode implementation - lazy loading of modules
@@ -330,6 +333,13 @@ function initServer() {
 									);
 								}
 
+								const noteConfirm = await requestConfirmation(
+									server, "Create Note", `Title: ${args.title}\nFolder: ${args.folderName || "Claude"}`
+								);
+								if (!noteConfirm.confirmed) {
+									return { content: [{ type: "text", text: noteConfirm.message }], isError: true };
+								}
+
 								const result = await notesModule.createNote(
 									args.title,
 									args.body,
@@ -381,6 +391,12 @@ function initServer() {
 										"Phone number and message are required for send operation",
 									);
 								}
+								const sendConfirm = await requestConfirmation(
+									server, "Send iMessage", `To: ${args.phoneNumber}\nMessage: ${args.message}`
+								);
+								if (!sendConfirm.confirmed) {
+									return { content: [{ type: "text", text: sendConfirm.message }], isError: true };
+								}
 								await messageModule.sendMessage(args.phoneNumber, args.message);
 								return {
 									content: [
@@ -427,6 +443,12 @@ function initServer() {
 									throw new Error(
 										"Phone number, message, and scheduled time are required for schedule operation",
 									);
+								}
+								const schedConfirm = await requestConfirmation(
+									server, "Schedule iMessage", `To: ${args.phoneNumber}\nMessage: ${args.message}\nScheduled: ${args.scheduledTime}`
+								);
+								if (!schedConfirm.confirmed) {
+									return { content: [{ type: "text", text: schedConfirm.message }], isError: true };
 								}
 								const scheduledMsg = await messageModule.scheduleMessage(
 									args.phoneNumber,
@@ -527,7 +549,7 @@ function initServer() {
 tell application "Mail"
     set resultList to {}
     try
-        set targetAccount to first account whose name is "${args.account.replace(/"/g, '\\"')}"
+        set targetAccount to first account whose name is "${sanitizeForAppleScript(args.account)}"
 
         -- Get mailboxes for this account
         set acctMailboxes to every mailbox of targetAccount
@@ -539,7 +561,7 @@ tell application "Mail"
 						? `
         set mailboxesToSearch to {}
         repeat with mb in acctMailboxes
-            if name of mb is "${args.mailbox.replace(/"/g, '\\"')}" then
+            if name of mb is "${sanitizeForAppleScript(args.mailbox)}" then
                 set mailboxesToSearch to {mb}
                 exit repeat
             end if
@@ -553,7 +575,7 @@ tell application "Mail"
             try
                 set unreadMessages to (messages of mb whose read status is false)
                 if (count of unreadMessages) > 0 then
-                    set msgLimit to ${args.limit || 10}
+                    set msgLimit to ${Number(args.limit) || 10}
                     if (count of unreadMessages) < msgLimit then
                         set msgLimit to (count of unreadMessages)
                     end if
@@ -581,7 +603,7 @@ tell application "Mail"
                         end try
                     end repeat
 
-                    if (count of resultList) ≥ ${args.limit || 10} then exit repeat
+                    if (count of resultList) ≥ ${Number(args.limit) || 10} then exit repeat
                 end if
             on error
                 -- Skip problematic mailboxes
@@ -709,6 +731,12 @@ end tell`;
 									throw new Error(
 										"Recipient (to), subject, and body are required for send operation",
 									);
+								}
+								const mailConfirm = await requestConfirmation(
+									server, "Send Email", `To: ${args.to}\nSubject: ${args.subject}${args.cc ? `\nCC: ${args.cc}` : ""}${args.bcc ? `\nBCC: ${args.bcc}` : ""}`
+								);
+								if (!mailConfirm.confirmed) {
+									return { content: [{ type: "text", text: mailConfirm.message }], isError: true };
 								}
 								const result = await mailModule.sendMail(
 									args.to,
@@ -888,6 +916,12 @@ end tell`;
 						} else if (operation === "create") {
 							// Create a reminder
 							const { name, listName, notes, dueDate } = args;
+							const reminderConfirm = await requestConfirmation(
+								server, "Create Reminder", `Name: ${name}${listName ? `\nList: ${listName}` : ""}${dueDate ? `\nDue: ${dueDate}` : ""}`
+							);
+							if (!reminderConfirm.confirmed) {
+								return { content: [{ type: "text", text: reminderConfirm.message }], isError: true };
+							}
 							const result = await remindersModule.createReminder(
 								name!,
 								listName,
@@ -1058,6 +1092,12 @@ end tell`;
 									isAllDay,
 									calendarName,
 								} = args;
+								const calConfirm = await requestConfirmation(
+									server, "Create Calendar Event", `Title: ${title}\nStart: ${startDate}\nEnd: ${endDate}${location ? `\nLocation: ${location}` : ""}${calendarName ? `\nCalendar: ${calendarName}` : ""}`
+								);
+								if (!calConfirm.confirmed) {
+									return { content: [{ type: "text", text: calConfirm.message }], isError: true };
+								}
 								const result = await calendarModule.createEvent(
 									title!,
 									startDate!,
@@ -1145,6 +1185,13 @@ end tell`;
 									);
 								}
 
+								const saveConfirm = await requestConfirmation(
+									server, "Save Location", `Name: ${name}\nAddress: ${address}`
+								);
+								if (!saveConfirm.confirmed) {
+									return { content: [{ type: "text", text: saveConfirm.message }], isError: true };
+								}
+
 								const result = await mapsModule.saveLocation(name, address);
 
 								return {
@@ -1164,6 +1211,13 @@ end tell`;
 									throw new Error(
 										"Name and address are required for pin operation",
 									);
+								}
+
+								const pinConfirm = await requestConfirmation(
+									server, "Drop Pin", `Name: ${name}\nAddress: ${address}`
+								);
+								if (!pinConfirm.confirmed) {
+									return { content: [{ type: "text", text: pinConfirm.message }], isError: true };
 								}
 
 								const result = await mapsModule.dropPin(name, address);
@@ -1226,6 +1280,13 @@ end tell`;
 									);
 								}
 
+								const addGuideConfirm = await requestConfirmation(
+									server, "Add to Guide", `Address: ${address}\nGuide: ${guideName}`
+								);
+								if (!addGuideConfirm.confirmed) {
+									return { content: [{ type: "text", text: addGuideConfirm.message }], isError: true };
+								}
+
 								const result = await mapsModule.addToGuide(address, guideName);
 
 								return {
@@ -1245,6 +1306,13 @@ end tell`;
 									throw new Error(
 										"Guide name is required for createGuide operation",
 									);
+								}
+
+								const createGuideConfirm = await requestConfirmation(
+									server, "Create Guide", `Guide Name: ${guideName}`
+								);
+								if (!createGuideConfirm.confirmed) {
+									return { content: [{ type: "text", text: createGuideConfirm.message }], isError: true };
 								}
 
 								const result = await mapsModule.createGuide(guideName);

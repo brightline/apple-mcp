@@ -1,4 +1,5 @@
 import { runAppleScript } from 'run-applescript';
+import { sanitizeForAppleScript } from './sanitize.ts';
 
 // Define types for our calendar events
 interface CalendarEvent {
@@ -251,7 +252,7 @@ async function searchEvents(
         startDateObj.setHours(0, 0, 0, 0);
         endDateObj.setHours(23, 59, 59, 999);
 
-        const cleanSearchText = searchText.replace(/"/g, '\\"');
+        const cleanSearchText = sanitizeForAppleScript(searchText);
 
         const script = `
 tell application "Calendar"
@@ -413,7 +414,7 @@ tell application "Calendar"
     -- Find target calendar
     set targetCal to null
     try
-        set targetCal to calendar "${targetCalendar}"
+        set targetCal to calendar "${sanitizeForAppleScript(targetCalendar)}"
     on error
         -- Use first available calendar
         set targetCal to first calendar
@@ -421,14 +422,14 @@ tell application "Calendar"
 
     -- Create the event
     tell targetCal
-        set newEvent to make new event with properties {summary:"${title.replace(/"/g, '\\"')}", start date:startDate, end date:endDate, allday event:${isAllDay}}
+        set newEvent to make new event with properties {summary:"${sanitizeForAppleScript(title)}", start date:startDate, end date:endDate, allday event:${isAllDay}}
 
         if "${location || ""}" ≠ "" then
-            set location of newEvent to "${(location || '').replace(/"/g, '\\"')}"
+            set location of newEvent to "${sanitizeForAppleScript(location || '')}"
         end if
 
         if "${notes || ""}" ≠ "" then
-            set description of newEvent to "${(notes || '').replace(/"/g, '\\"')}"
+            set description of newEvent to "${sanitizeForAppleScript(notes || '')}"
         end if
 
         return uid of newEvent

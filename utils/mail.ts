@@ -1,4 +1,6 @@
 import { runAppleScript } from "run-applescript";
+import { unlinkSync } from "node:fs";
+import { sanitizeForAppleScript, createSecureTempFile } from "./sanitize.ts";
 
 // Configuration
 const CONFIG = {
@@ -200,7 +202,7 @@ async function searchMails(
 		}
 
 		const maxEmails = Math.min(limit, CONFIG.MAX_EMAILS);
-		const cleanSearchTerm = searchTerm.replace(/"/g, '\\"');
+		const cleanSearchTerm = sanitizeForAppleScript(searchTerm);
 
 		const script = `
 tell application "Mail"
@@ -299,11 +301,7 @@ async function sendMail(
 		}
 
 		// Use file-based approach for email body to avoid AppleScript escaping issues
-		const tmpFile = `/tmp/email-body-${Date.now()}.txt`;
-		const fs = require("fs");
-
-		// Write content to temporary file
-		fs.writeFileSync(tmpFile, body.trim(), "utf8");
+		const tmpFile = createSecureTempFile("email-body", body.trim());
 
 		const script = `
 tell application "Mail"
@@ -313,12 +311,12 @@ tell application "Mail"
     set emailBody to read file POSIX file "${tmpFile}" as «class utf8»
 
     -- Create new message
-    set newMessage to make new outgoing message with properties {subject:"${subject.replace(/"/g, '\\"')}", content:emailBody, visible:true}
+    set newMessage to make new outgoing message with properties {subject:"${sanitizeForAppleScript(subject)}", content:emailBody, visible:true}
 
     tell newMessage
-        make new to recipient with properties {address:"${to.replace(/"/g, '\\"')}"}
-        ${cc ? `make new cc recipient with properties {address:"${cc.replace(/"/g, '\\"')}"}` : ""}
-        ${bcc ? `make new bcc recipient with properties {address:"${bcc.replace(/"/g, '\\"')}"}` : ""}
+        make new to recipient with properties {address:"${sanitizeForAppleScript(to)}"}
+        ${cc ? `make new cc recipient with properties {address:"${sanitizeForAppleScript(cc)}"}` : ""}
+        ${bcc ? `make new bcc recipient with properties {address:"${sanitizeForAppleScript(bcc)}"}` : ""}
     end tell
 
     send newMessage
@@ -329,7 +327,7 @@ end tell`;
 
 		// Clean up temporary file
 		try {
-			fs.unlinkSync(tmpFile);
+			unlinkSync(tmpFile);
 		} catch (e) {
 			// Ignore cleanup errors
 		}
@@ -448,7 +446,7 @@ tell application "Mail"
 	set boxNames to {}
 
 	try
-		set targetAccount to first account whose name is "${accountName.replace(/"/g, '\\"')}"
+		set targetAccount to first account whose name is "${sanitizeForAppleScript(accountName)}"
 		set accountMailboxes to mailboxes of targetAccount
 
 		repeat with mb in accountMailboxes
@@ -502,7 +500,7 @@ tell application "Mail"
 	set emailCount to 0
 
 	try
-		set targetAccount to first account whose name is "${account.replace(/"/g, '\\"')}"
+		set targetAccount to first account whose name is "${sanitizeForAppleScript(account)}"
 		set acctMailboxes to every mailbox of targetAccount
 
 		repeat with mb in acctMailboxes

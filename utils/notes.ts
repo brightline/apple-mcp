@@ -1,4 +1,6 @@
 import { runAppleScript } from "run-applescript";
+import { unlinkSync } from "node:fs";
+import { sanitizeForAppleScript, createSecureTempFile } from "./sanitize.ts";
 
 // Configuration
 const CONFIG = {
@@ -154,7 +156,7 @@ async function findNote(searchText: string): Promise<Note[]> {
 tell application "Notes"
     set matchedNotes to {}
     set noteCount to 0
-    set searchTerm to "${searchTerm}"
+    set searchTerm to "${sanitizeForAppleScript(searchTerm)}"
 
     -- Get all notes and search through them
     set allNotes to notes
@@ -236,23 +238,22 @@ async function createNote(
 		const formattedBody = body.trim();
 
 		// Use file-based approach for complex content to avoid AppleScript string issues
-		const tmpFile = `/tmp/note-content-${Date.now()}.txt`;
-		const fs = require("fs");
+		const tmpFile = createSecureTempFile("note-content", formattedBody);
 
-		// Write content to temporary file to avoid AppleScript escaping issues
-		fs.writeFileSync(tmpFile, formattedBody, "utf8");
+		const safeFolderName = sanitizeForAppleScript(folderName);
+		const safeTitle = sanitizeForAppleScript(title);
 
 		const script = `
 tell application "Notes"
     set targetFolder to null
     set folderFound to false
-    set actualFolderName to "${folderName}"
+    set actualFolderName to "${safeFolderName}"
 
     -- Try to find the specified folder
     try
         set allFolders to folders
         repeat with currentFolder in allFolders
-            if name of currentFolder is "${folderName}" then
+            if name of currentFolder is "${safeFolderName}" then
                 set targetFolder to currentFolder
                 set folderFound to true
                 exit repeat
@@ -263,16 +264,16 @@ tell application "Notes"
     end try
 
     -- If folder not found and it's a test folder, try to create it
-    if not folderFound and ("${folderName}" is "Claude" or "${folderName}" is "Test-Claude") then
+    if not folderFound and ("${safeFolderName}" is "Claude" or "${safeFolderName}" is "Test-Claude") then
         try
-            make new folder with properties {name:"${folderName}"}
+            make new folder with properties {name:"${safeFolderName}"}
             -- Try to find it again
             set allFolders to folders
             repeat with currentFolder in allFolders
-                if name of currentFolder is "${folderName}" then
+                if name of currentFolder is "${safeFolderName}" then
                     set targetFolder to currentFolder
                     set folderFound to true
-                    set actualFolderName to "${folderName}"
+                    set actualFolderName to "${safeFolderName}"
                     exit repeat
                 end if
             end repeat
@@ -288,11 +289,11 @@ tell application "Notes"
     -- Create the note with proper content
     if folderFound and targetFolder is not null then
         -- Create note in specified folder
-        make new note at targetFolder with properties {name:"${title.replace(/"/g, '\\"')}", body:noteContent}
+        make new note at targetFolder with properties {name:"${safeTitle}", body:noteContent}
         return "SUCCESS:" & actualFolderName & ":false"
     else
         -- Create note in default location
-        make new note with properties {name:"${title.replace(/"/g, '\\"')}", body:noteContent}
+        make new note with properties {name:"${safeTitle}", body:noteContent}
         return "SUCCESS:Notes:true"
     end if
 end tell`;
@@ -301,7 +302,7 @@ end tell`;
 
 		// Clean up temporary file
 		try {
-			fs.unlinkSync(tmpFile);
+			unlinkSync(tmpFile);
 		} catch (e) {
 			// Ignore cleanup errors
 		}
@@ -360,7 +361,7 @@ tell application "Notes"
     try
         set allFolders to folders
         repeat with currentFolder in allFolders
-            if name of currentFolder is "${folderName}" then
+            if name of currentFolder is "${sanitizeForAppleScript(folderName)}" then
                 set folderFound to true
 
                 -- Get notes from this folder
