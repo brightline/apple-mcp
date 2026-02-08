@@ -14,6 +14,10 @@ lerna-debug.log*
 
 .cache
 
+# DXT build artifacts
+apple-mcp/
+.dxt-stage/
+
 # MCP related files/directories
 mcp-debug-tools/
 debugmcp

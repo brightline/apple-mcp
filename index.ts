@@ -1367,22 +1367,18 @@ end tell`;
 	// Start the server transport
 	console.error("Setting up MCP server transport...");
 
+	// Global error handlers to prevent silent crashes
+	process.on("uncaughtException", (error) => {
+		console.error("Uncaught exception:", error);
+	});
+	process.on("unhandledRejection", (reason) => {
+		console.error("Unhandled rejection:", reason);
+	});
+
 	(async () => {
 		try {
 			console.error("Initializing transport...");
 			const transport = new StdioServerTransport();
-
-			// Ensure stdout is only used for JSON messages
-			console.error("Setting up stdout filter...");
-			const originalStdoutWrite = process.stdout.write.bind(process.stdout);
-			process.stdout.write = (chunk: any, encoding?: any, callback?: any) => {
-				// Only allow JSON messages to pass through
-				if (typeof chunk === "string" && !chunk.startsWith("{")) {
-					console.error("Filtering non-JSON stdout message");
-					return true; // Silently skip non-JSON messages
-				}
-				return originalStdoutWrite(chunk, encoding, callback);
-			};
 
 			console.error("Connecting transport to server...");
 			await server.connect(transport);

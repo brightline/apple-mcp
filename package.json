@@ -38,7 +38,8 @@
 		"test:calendar": "bun test tests/integration/calendar.test.ts --preload ./tests/setup.ts",
 		"test:maps": "bun test tests/integration/maps.test.ts --preload ./tests/setup.ts",
 		"test:web-search": "bun test tests/integration/web-search.test.ts --preload ./tests/setup.ts",
-		"test:mcp": "bun test tests/mcp/handlers.test.ts --preload ./tests/setup.ts"
+		"test:mcp": "bun test tests/mcp/handlers.test.ts --preload ./tests/setup.ts",
+		"dxt": "bun run build && rm -rf .dxt-stage apple-mcp.dxt && mkdir -p .dxt-stage/dist && cp manifest.json .dxt-stage/ && cp dist/index.js .dxt-stage/dist/ && cd .dxt-stage && zip -r ../apple-mcp.dxt . && cd .. && rm -rf .dxt-stage && echo 'Created apple-mcp.dxt'"
 	},
 	"devDependencies": {
 		"@types/bun": "latest",
