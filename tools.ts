@@ -235,7 +235,7 @@ const CALENDAR_TOOL: Tool = {
       },
       calendarName: {
         type: "string",
-        description: "Name of the calendar to create the event in (optional for create operation, uses default calendar if not specified)"
+        description: "Name of the calendar (optional — filters list/search to a specific calendar, or targets create to a specific calendar)"
       }
     },
     required: ["operation"]

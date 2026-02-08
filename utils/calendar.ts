@@ -111,37 +111,41 @@ async function requestCalendarAccess(): Promise<{ hasAccess: boolean; message: s
 }
 
 /**
- * Get calendar events in a specified date range
- * @param limit Optional limit on the number of results (default 10)
- * @param fromDate Optional start date for search range in ISO format (default: today)
- * @param toDate Optional end date for search range in ISO format (default: 7 days from now)
+ * Get all calendar names from the Calendar app
  */
-async function getEvents(
-    limit = 10,
-    fromDate?: string,
-    toDate?: string
-): Promise<CalendarEvent[]> {
-    try {
-        console.error("getEvents - Starting to fetch calendar events");
+async function getCalendarNames(): Promise<string[]> {
+    const script = `
+tell application "Calendar"
+    set calNames to {}
+    repeat with cal in calendars
+        set end of calNames to name of cal
+    end repeat
+    set {oldTID, AppleScript's text item delimiters} to {AppleScript's text item delimiters, linefeed}
+    set output to calNames as text
+    set AppleScript's text item delimiters to oldTID
+    return output
+end tell`;
 
-        const accessResult = await requestCalendarAccess();
-        if (!accessResult.hasAccess) {
-            throw new Error(accessResult.message);
-        }
-        console.error("getEvents - Calendar access check passed");
+    const result = await runAppleScriptWithTimeout(script, CONFIG.TIMEOUT_MS) as string;
+    if (!result || result.trim() === "") return [];
+    return result.split(/\r?\n/).filter(n => n.trim() !== "");
+}
 
-        const maxEvents = Math.min(limit, CONFIG.MAX_EVENTS);
-
-        const startDateObj = fromDate ? new Date(fromDate) : new Date();
-        const endDateObj = toDate ? new Date(toDate) : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-
-        startDateObj.setHours(0, 0, 0, 0);
-        endDateObj.setHours(23, 59, 59, 999);
-
-        const script = `
+/**
+ * Build an AppleScript that fetches events from a single calendar by name
+ */
+function buildGetEventsScript(
+    calName: string,
+    startDateObj: Date,
+    endDateObj: Date,
+    maxEvents: number
+): string {
+    return `
 tell application "Calendar"
     set outputText to ""
     set eventCount to 0
+    set cal to calendar "${sanitizeForAppleScript(calName)}"
+    set calName to name of cal
 
     set startDate to current date
     set day of startDate to 1
@@ -161,20 +165,103 @@ tell application "Calendar"
     set minutes of endDate to 59
     set seconds of endDate to 59
 
-    repeat with cal in calendars
-        if eventCount >= ${maxEvents} then exit repeat
+    try
+        set calEvents to (every event of cal whose start date >= startDate and start date <= endDate)
 
-        set calName to name of cal
+        repeat with evt in calEvents
+            if eventCount >= ${maxEvents} then exit repeat
 
-        try
-            set calEvents to (every event of cal whose start date >= startDate and start date <= endDate)
+            try
+                set evtId to uid of evt
+                set evtTitle to summary of evt
+                set evtStart to (start date of evt) as string
+                set evtEnd to (end date of evt) as string
 
-            repeat with evt in calEvents
-                if eventCount >= ${maxEvents} then exit repeat
+                set isAllDayStr to "false"
+                if allday event of evt then set isAllDayStr to "true"
 
+                set evtLocation to ""
                 try
+                    set loc to location of evt
+                    if loc is not missing value then set evtLocation to loc
+                end try
+
+                set evtNotes to ""
+                try
+                    set n to description of evt
+                    if n is not missing value then set evtNotes to n
+                end try
+
+                set evtUrl to ""
+                try
+                    set u to url of evt
+                    if u is not missing value then set evtUrl to u
+                end try
+
+                set outputText to outputText & my cleanField(evtId) & tab & my cleanField(evtTitle) & tab & my cleanField(evtLocation) & tab & my cleanField(evtNotes) & tab & my cleanField(evtStart) & tab & my cleanField(evtEnd) & tab & my cleanField(calName) & tab & isAllDayStr & tab & my cleanField(evtUrl) & linefeed
+                set eventCount to eventCount + 1
+            on error
+                -- Skip problematic events
+            end try
+        end repeat
+    on error
+        -- Skip calendars that don't support date filtering
+    end try
+
+    return outputText
+end tell
+${CLEAN_FIELD_HANDLER}`;
+}
+
+/**
+ * Build an AppleScript that searches events in a single calendar by name
+ */
+function buildSearchEventsScript(
+    calName: string,
+    searchText: string,
+    startDateObj: Date,
+    endDateObj: Date,
+    maxEvents: number
+): string {
+    const cleanSearchText = sanitizeForAppleScript(searchText);
+
+    return `
+tell application "Calendar"
+    set outputText to ""
+    set eventCount to 0
+    set searchTerm to "${cleanSearchText}"
+    set cal to calendar "${sanitizeForAppleScript(calName)}"
+    set calName to name of cal
+
+    set startDate to current date
+    set day of startDate to 1
+    set year of startDate to ${startDateObj.getFullYear()}
+    set month of startDate to ${startDateObj.getMonth() + 1}
+    set day of startDate to ${startDateObj.getDate()}
+    set hours of startDate to 0
+    set minutes of startDate to 0
+    set seconds of startDate to 0
+
+    set endDate to current date
+    set day of endDate to 1
+    set year of endDate to ${endDateObj.getFullYear()}
+    set month of endDate to ${endDateObj.getMonth() + 1}
+    set day of endDate to ${endDateObj.getDate()}
+    set hours of endDate to 23
+    set minutes of endDate to 59
+    set seconds of endDate to 59
+
+    try
+        set calEvents to (every event of cal whose start date >= startDate and start date <= endDate)
+
+        repeat with evt in calEvents
+            if eventCount >= ${maxEvents} then exit repeat
+
+            try
+                set evtTitle to summary of evt
+
+                if evtTitle contains searchTerm then
                     set evtId to uid of evt
-                    set evtTitle to summary of evt
                     set evtStart to (start date of evt) as string
                     set evtEnd to (end date of evt) as string
 
@@ -201,21 +288,84 @@ tell application "Calendar"
 
                     set outputText to outputText & my cleanField(evtId) & tab & my cleanField(evtTitle) & tab & my cleanField(evtLocation) & tab & my cleanField(evtNotes) & tab & my cleanField(evtStart) & tab & my cleanField(evtEnd) & tab & my cleanField(calName) & tab & isAllDayStr & tab & my cleanField(evtUrl) & linefeed
                     set eventCount to eventCount + 1
-                on error
-                    -- Skip problematic events
-                end try
-            end repeat
-        on error
-            -- Skip calendars that don't support date filtering
-        end try
-    end repeat
+                end if
+            on error
+                -- Skip problematic events
+            end try
+        end repeat
+    on error
+        -- Skip calendars that don't support date filtering
+    end try
 
     return outputText
 end tell
 ${CLEAN_FIELD_HANDLER}`;
+}
 
-        const result = await runAppleScriptWithTimeout(script, CONFIG.TIMEOUT_MS) as string;
-        return parseEventResults(result);
+/**
+ * Get calendar events in a specified date range, querying calendars in parallel
+ * @param limit Optional limit on the number of results (default 10)
+ * @param fromDate Optional start date for search range in ISO format (default: today)
+ * @param toDate Optional end date for search range in ISO format (default: 7 days from now)
+ * @param calendarName Optional calendar name to filter results to a specific calendar
+ */
+async function getEvents(
+    limit = 10,
+    fromDate?: string,
+    toDate?: string,
+    calendarName?: string
+): Promise<CalendarEvent[]> {
+    try {
+        console.error("getEvents - Starting to fetch calendar events");
+
+        const accessResult = await requestCalendarAccess();
+        if (!accessResult.hasAccess) {
+            throw new Error(accessResult.message);
+        }
+        console.error("getEvents - Calendar access check passed");
+
+        const maxEvents = Math.min(limit, CONFIG.MAX_EVENTS);
+
+        const startDateObj = fromDate ? new Date(fromDate) : new Date();
+        const endDateObj = toDate ? new Date(toDate) : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+        startDateObj.setHours(0, 0, 0, 0);
+        endDateObj.setHours(23, 59, 59, 999);
+
+        let calNames = await getCalendarNames();
+        if (calendarName) {
+            calNames = calNames.filter(n => n === calendarName);
+            if (calNames.length === 0) {
+                console.error(`getEvents - Calendar "${calendarName}" not found`);
+                return [];
+            }
+        }
+
+        console.error(`getEvents - Querying ${calNames.length} calendar(s) in parallel`);
+
+        const results = await Promise.allSettled(
+            calNames.map(name =>
+                runAppleScriptWithTimeout(
+                    buildGetEventsScript(name, startDateObj, endDateObj, maxEvents),
+                    CONFIG.TIMEOUT_MS
+                )
+            )
+        );
+
+        const allEvents = results
+            .filter((r): r is PromiseFulfilledResult<string> => r.status === "fulfilled")
+            .flatMap(r => parseEventResults(r.value));
+
+        // Log any rejected calendars
+        results.forEach((r, i) => {
+            if (r.status === "rejected") {
+                console.error(`getEvents - Calendar "${calNames[i]}" failed: ${r.reason}`);
+            }
+        });
+
+        return allEvents
+            .sort((a, b) => new Date(a.startDate!).getTime() - new Date(b.startDate!).getTime())
+            .slice(0, maxEvents);
     } catch (error) {
         console.error(`Error getting events: ${error instanceof Error ? error.message : String(error)}`);
         return [];
@@ -223,17 +373,19 @@ ${CLEAN_FIELD_HANDLER}`;
 }
 
 /**
- * Search for calendar events that match the search text
+ * Search for calendar events that match the search text, querying calendars in parallel
  * @param searchText Text to search for in event titles
  * @param limit Optional limit on the number of results (default 10)
  * @param fromDate Optional start date for search range in ISO format (default: today)
  * @param toDate Optional end date for search range in ISO format (default: 30 days from now)
+ * @param calendarName Optional calendar name to filter results to a specific calendar
  */
 async function searchEvents(
     searchText: string,
     limit = 10,
     fromDate?: string,
-    toDate?: string
+    toDate?: string,
+    calendarName?: string
 ): Promise<CalendarEvent[]> {
     try {
         const accessResult = await requestCalendarAccess();
@@ -251,90 +403,40 @@ async function searchEvents(
         startDateObj.setHours(0, 0, 0, 0);
         endDateObj.setHours(23, 59, 59, 999);
 
-        const cleanSearchText = sanitizeForAppleScript(searchText);
+        let calNames = await getCalendarNames();
+        if (calendarName) {
+            calNames = calNames.filter(n => n === calendarName);
+            if (calNames.length === 0) {
+                console.error(`searchEvents - Calendar "${calendarName}" not found`);
+                return [];
+            }
+        }
 
-        const script = `
-tell application "Calendar"
-    set outputText to ""
-    set eventCount to 0
-    set searchTerm to "${cleanSearchText}"
+        console.error(`searchEvents - Querying ${calNames.length} calendar(s) in parallel`);
 
-    set startDate to current date
-    set day of startDate to 1
-    set year of startDate to ${startDateObj.getFullYear()}
-    set month of startDate to ${startDateObj.getMonth() + 1}
-    set day of startDate to ${startDateObj.getDate()}
-    set hours of startDate to 0
-    set minutes of startDate to 0
-    set seconds of startDate to 0
+        const results = await Promise.allSettled(
+            calNames.map(name =>
+                runAppleScriptWithTimeout(
+                    buildSearchEventsScript(name, searchText, startDateObj, endDateObj, maxEvents),
+                    CONFIG.TIMEOUT_MS
+                )
+            )
+        );
 
-    set endDate to current date
-    set day of endDate to 1
-    set year of endDate to ${endDateObj.getFullYear()}
-    set month of endDate to ${endDateObj.getMonth() + 1}
-    set day of endDate to ${endDateObj.getDate()}
-    set hours of endDate to 23
-    set minutes of endDate to 59
-    set seconds of endDate to 59
+        const allEvents = results
+            .filter((r): r is PromiseFulfilledResult<string> => r.status === "fulfilled")
+            .flatMap(r => parseEventResults(r.value));
 
-    repeat with cal in calendars
-        if eventCount >= ${maxEvents} then exit repeat
+        // Log any rejected calendars
+        results.forEach((r, i) => {
+            if (r.status === "rejected") {
+                console.error(`searchEvents - Calendar "${calNames[i]}" failed: ${r.reason}`);
+            }
+        });
 
-        set calName to name of cal
-
-        try
-            set calEvents to (every event of cal whose start date >= startDate and start date <= endDate)
-
-            repeat with evt in calEvents
-                if eventCount >= ${maxEvents} then exit repeat
-
-                try
-                    set evtTitle to summary of evt
-
-                    if evtTitle contains searchTerm then
-                        set evtId to uid of evt
-                        set evtStart to (start date of evt) as string
-                        set evtEnd to (end date of evt) as string
-
-                        set isAllDayStr to "false"
-                        if allday event of evt then set isAllDayStr to "true"
-
-                        set evtLocation to ""
-                        try
-                            set loc to location of evt
-                            if loc is not missing value then set evtLocation to loc
-                        end try
-
-                        set evtNotes to ""
-                        try
-                            set n to description of evt
-                            if n is not missing value then set evtNotes to n
-                        end try
-
-                        set evtUrl to ""
-                        try
-                            set u to url of evt
-                            if u is not missing value then set evtUrl to u
-                        end try
-
-                        set outputText to outputText & my cleanField(evtId) & tab & my cleanField(evtTitle) & tab & my cleanField(evtLocation) & tab & my cleanField(evtNotes) & tab & my cleanField(evtStart) & tab & my cleanField(evtEnd) & tab & my cleanField(calName) & tab & isAllDayStr & tab & my cleanField(evtUrl) & linefeed
-                        set eventCount to eventCount + 1
-                    end if
-                on error
-                    -- Skip problematic events
-                end try
-            end repeat
-        on error
-            -- Skip calendars that don't support date filtering
-        end try
-    end repeat
-
-    return outputText
-end tell
-${CLEAN_FIELD_HANDLER}`;
-
-        const result = await runAppleScriptWithTimeout(script, CONFIG.TIMEOUT_MS) as string;
-        return parseEventResults(result);
+        return allEvents
+            .sort((a, b) => new Date(a.startDate!).getTime() - new Date(b.startDate!).getTime())
+            .slice(0, maxEvents);
     } catch (error) {
         console.error(`Error searching events: ${error instanceof Error ? error.message : String(error)}`);
         return [];

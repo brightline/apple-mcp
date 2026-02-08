@@ -997,12 +997,13 @@ end tell`;
 
 						switch (operation) {
 							case "search": {
-								const { searchText, limit, fromDate, toDate } = args;
+								const { searchText, limit, fromDate, toDate, calendarName } = args;
 								const events = await calendarModule.searchEvents(
 									searchText!,
 									limit,
 									fromDate,
 									toDate,
+									calendarName,
 								);
 
 								return {
@@ -1046,11 +1047,12 @@ end tell`;
 							}
 
 							case "list": {
-								const { limit, fromDate, toDate } = args;
+								const { limit, fromDate, toDate, calendarName } = args;
 								const events = await calendarModule.getEvents(
 									limit,
 									fromDate,
 									toDate,
+									calendarName,
 								);
 
 								const startDateText = fromDate
