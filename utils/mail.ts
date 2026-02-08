@@ -8,7 +8,7 @@ const CONFIG = {
 	// Maximum content length for previews
 	MAX_CONTENT_PREVIEW: 300,
 	// Timeout for operations
-	TIMEOUT_MS: 10000,
+	TIMEOUT_MS: 30000,
 };
 
 interface EmailMessage {
@@ -108,10 +108,19 @@ async function requestMailAccess(): Promise<{ hasAccess: boolean; message: strin
 	}
 }
 
+// Max recent messages to scan per mailbox (avoids timeouts on huge mailboxes)
+const SCAN_PER_MAILBOX = 100;
+
 /**
- * Get unread emails from Mail app (limited for performance)
+ * Get unread emails from Mail app.
+ * Scans the most recent N messages per mailbox by index instead of using
+ * "whose" filters, which time out on large mailboxes (100k+ messages).
  */
-async function getUnreadMails(limit = 10): Promise<EmailMessage[]> {
+async function getUnreadMails(
+	limit = 10,
+	account?: string,
+	mailbox?: string,
+): Promise<EmailMessage[]> {
 	try {
 		const accessResult = await requestMailAccess();
 		if (!accessResult.hasAccess) {
@@ -120,60 +129,96 @@ async function getUnreadMails(limit = 10): Promise<EmailMessage[]> {
 
 		const maxEmails = Math.min(limit, CONFIG.MAX_EMAILS);
 
+		const acctFilter = account
+			? `set acctList to {first account whose name is "${sanitizeForAppleScript(account)}"}`
+			: `set acctList to every account`;
+
+		const mbFilter = mailbox
+			? `
+			set mbList to {}
+			repeat with mb in mailboxes of acct
+				if name of mb is "${sanitizeForAppleScript(mailbox)}" then
+					set end of mbList to mb
+					exit repeat
+				end if
+			end repeat`
+			: `set mbList to mailboxes of acct`;
+
 		const script = `
 tell application "Mail"
 	set outputText to ""
 	set emailCount to 0
 
-	repeat with mb in mailboxes
-		if emailCount >= ${maxEmails} then exit repeat
+	try
+		${acctFilter}
 
-		try
-			set mbName to name of mb
-			set unreadMsgs to (messages of mb whose read status is false)
-			set msgCount to count of unreadMsgs
+		repeat with acct in acctList
+			if emailCount >= ${maxEmails} then exit repeat
 
-			if msgCount > 0 then
-				set processCount to msgCount
-				if processCount > (${maxEmails} - emailCount) then
-					set processCount to (${maxEmails} - emailCount)
-				end if
+			try
+				set acctName to name of acct
+				${mbFilter}
 
-				repeat with i from 1 to processCount
+				repeat with mb in mbList
+					if emailCount >= ${maxEmails} then exit repeat
+
 					try
-						set msg to item i of unreadMsgs
-						set msgSubject to my cleanField(subject of msg)
-						set msgSender to my cleanField(sender of msg)
-						set msgDate to my cleanField((date sent of msg) as string)
+						set mbName to name of mb
 
-						set msgContent to "[Content not available]"
-						try
-							set rawContent to content of msg
-							if rawContent is not missing value then
-								if (length of rawContent) > ${CONFIG.MAX_CONTENT_PREVIEW} then
-									set rawContent to (text 1 thru ${CONFIG.MAX_CONTENT_PREVIEW} of rawContent) & "..."
+						-- Scan most recent messages by index (never use "whose" on large mailboxes)
+						set scanCount to count of messages of mb
+						if scanCount > ${SCAN_PER_MAILBOX} then set scanCount to ${SCAN_PER_MAILBOX}
+
+						repeat with i from 1 to scanCount
+							if emailCount >= ${maxEmails} then exit repeat
+
+							try
+								set msg to message i of mb
+								if read status of msg is false then
+									set msgSubject to my cleanField(subject of msg)
+									set msgSender to my cleanField(sender of msg)
+									set msgDate to my cleanField((date sent of msg) as string)
+
+									set msgContent to "[Content not available]"
+									try
+										set rawContent to content of msg
+										if rawContent is not missing value then
+											if (length of rawContent) > ${CONFIG.MAX_CONTENT_PREVIEW} then
+												set rawContent to (text 1 thru ${CONFIG.MAX_CONTENT_PREVIEW} of rawContent) & "..."
+											end if
+											set msgContent to my cleanField(rawContent)
+										end if
+									end try
+
+									set outputText to outputText & msgSubject & tab & msgSender & tab & msgDate & tab & msgContent & tab & "false" & tab & my cleanField(acctName & "/" & mbName) & linefeed
+									set emailCount to emailCount + 1
 								end if
-								set msgContent to my cleanField(rawContent)
-							end if
-						end try
-
-						set outputText to outputText & msgSubject & tab & msgSender & tab & msgDate & tab & msgContent & tab & "false" & tab & my cleanField(mbName) & linefeed
-						set emailCount to emailCount + 1
+							on error
+								-- Skip problematic messages
+							end try
+						end repeat
 					on error
-						-- Skip problematic messages
+						-- Skip problematic mailboxes
 					end try
 				end repeat
-			end if
-		on error
-			-- Skip problematic mailboxes
-		end try
-	end repeat
+			on error
+				-- Skip problematic accounts
+			end try
+		end repeat
+	on error errMsg
+		return "ERROR:" & errMsg
+	end try
 
 	return outputText
 end tell
 ${CLEAN_FIELD_HANDLER}`;
 
 		const result = (await runAppleScriptWithTimeout(script, CONFIG.TIMEOUT_MS)) as string;
+
+		if (result && result.startsWith("ERROR:")) {
+			throw new Error(result.substring(6));
+		}
+
 		return parseEmailResults(result);
 	} catch (error) {
 		console.error(
@@ -209,52 +254,60 @@ tell application "Mail"
 	set emailCount to 0
 	set searchTerm to "${cleanSearchTerm}"
 
-	repeat with mb in mailboxes
+	-- Search recent messages per mailbox by index, matching subject locally
+	repeat with acct in accounts
 		if emailCount >= ${maxEmails} then exit repeat
 
 		try
-			set mbName to name of mb
+			set acctName to name of acct
 
-			-- Use whose clause for efficient subject search
-			set matchingMsgs to (messages of mb whose subject contains searchTerm)
-			set msgCount to count of matchingMsgs
+			repeat with mb in mailboxes of acct
+				if emailCount >= ${maxEmails} then exit repeat
 
-			if msgCount > 0 then
-				set processCount to msgCount
-				if processCount > (${maxEmails} - emailCount) then
-					set processCount to (${maxEmails} - emailCount)
-				end if
+				try
+					set mbName to name of mb
 
-				repeat with i from 1 to processCount
-					try
-						set msg to item i of matchingMsgs
-						set msgSubject to my cleanField(subject of msg)
-						set msgSender to my cleanField(sender of msg)
-						set msgDate to my cleanField((date sent of msg) as string)
+					set scanCount to count of messages of mb
+					if scanCount > ${SCAN_PER_MAILBOX} then set scanCount to ${SCAN_PER_MAILBOX}
 
-						set isReadStr to "true"
-						if read status of msg is false then set isReadStr to "false"
+					repeat with i from 1 to scanCount
+						if emailCount >= ${maxEmails} then exit repeat
 
-						set msgContent to "[Content not available]"
 						try
-							set rawContent to content of msg
-							if rawContent is not missing value then
-								if (length of rawContent) > ${CONFIG.MAX_CONTENT_PREVIEW} then
-									set rawContent to (text 1 thru ${CONFIG.MAX_CONTENT_PREVIEW} of rawContent) & "..."
-								end if
-								set msgContent to my cleanField(rawContent)
-							end if
-						end try
+							set msg to message i of mb
+							set msgSubject to subject of msg
+							if msgSubject contains searchTerm then
+								set cleanSubject to my cleanField(msgSubject)
+								set msgSender to my cleanField(sender of msg)
+								set msgDate to my cleanField((date sent of msg) as string)
 
-						set outputText to outputText & msgSubject & tab & msgSender & tab & msgDate & tab & msgContent & tab & isReadStr & tab & my cleanField(mbName) & linefeed
-						set emailCount to emailCount + 1
-					on error
-						-- Skip problematic messages
-					end try
-				end repeat
-			end if
+								set isReadStr to "true"
+								if read status of msg is false then set isReadStr to "false"
+
+								set msgContent to "[Content not available]"
+								try
+									set rawContent to content of msg
+									if rawContent is not missing value then
+										if (length of rawContent) > ${CONFIG.MAX_CONTENT_PREVIEW} then
+											set rawContent to (text 1 thru ${CONFIG.MAX_CONTENT_PREVIEW} of rawContent) & "..."
+										end if
+										set msgContent to my cleanField(rawContent)
+									end if
+								end try
+
+								set outputText to outputText & cleanSubject & tab & msgSender & tab & msgDate & tab & msgContent & tab & isReadStr & tab & my cleanField(acctName & "/" & mbName) & linefeed
+								set emailCount to emailCount + 1
+							end if
+						on error
+							-- Skip problematic messages
+						end try
+					end repeat
+				on error
+					-- Skip problematic mailboxes
+				end try
+			end repeat
 		on error
-			-- Skip problematic mailboxes
+			-- Skip problematic accounts
 		end try
 	end repeat
 
@@ -359,9 +412,16 @@ async function getMailboxes(): Promise<string[]> {
 		const script = `
 tell application "Mail"
 	set boxNames to {}
-	repeat with mb in mailboxes
+
+	-- Include mailboxes from all accounts
+	repeat with acct in accounts
 		try
-			set end of boxNames to name of mb
+			set acctName to name of acct
+			repeat with mb in mailboxes of acct
+				try
+					set end of boxNames to acctName & "/" & name of mb
+				end try
+			end repeat
 		end try
 	end repeat
 
