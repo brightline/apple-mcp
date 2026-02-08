@@ -26,8 +26,8 @@
 		"type": "node",
 		"entry_point": "dist/index.js",
 		"mcp_config": {
-			"command": "node",
-			"args": ["${__dirname}/dist/index.js"],
+			"command": "npx",
+			"args": ["-y", "apple-mcp@latest"],
 			"env": {}
 		}
 	},

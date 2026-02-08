@@ -1,0 +1,24 @@
+# Source (dist/index.js is the bundle)
+index.ts
+tools.ts
+utils/
+tsconfig.json
+
+# Tests
+tests/
+test-runner.ts
+TEST_README.md
+
+# Dev / CI
+.github/
+.dxt-stage/
+.gitignore
+.DS_Store
+CLAUDE.md
+bun.lockb
+
+# DXT artifact
+apple-mcp.dxt
+
+# Dependencies (bundled into dist/index.js)
+node_modules/
