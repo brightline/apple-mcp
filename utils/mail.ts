@@ -1,6 +1,5 @@
-import { runAppleScript } from "run-applescript";
 import { unlinkSync } from "node:fs";
-import { sanitizeForAppleScript, createSecureTempFile } from "./sanitize.ts";
+import { sanitizeForAppleScript, createSecureTempFile, runAppleScriptWithTimeout } from "./sanitize.ts";
 
 // Configuration
 const CONFIG = {
@@ -72,7 +71,7 @@ tell application "Mail"
     return name
 end tell`;
 
-		await runAppleScript(script);
+		await runAppleScriptWithTimeout(script, CONFIG.TIMEOUT_MS);
 		return true;
 	} catch (error) {
 		console.error(
@@ -174,7 +173,7 @@ tell application "Mail"
 end tell
 ${CLEAN_FIELD_HANDLER}`;
 
-		const result = (await runAppleScript(script)) as string;
+		const result = (await runAppleScriptWithTimeout(script, CONFIG.TIMEOUT_MS)) as string;
 		return parseEmailResults(result);
 	} catch (error) {
 		console.error(
@@ -263,7 +262,7 @@ tell application "Mail"
 end tell
 ${CLEAN_FIELD_HANDLER}`;
 
-		const result = (await runAppleScript(script)) as string;
+		const result = (await runAppleScriptWithTimeout(script, CONFIG.TIMEOUT_MS)) as string;
 		return parseEmailResults(result);
 	} catch (error) {
 		console.error(
@@ -323,7 +322,7 @@ tell application "Mail"
     return "SUCCESS"
 end tell`;
 
-		const result = (await runAppleScript(script)) as string;
+		const result = (await runAppleScriptWithTimeout(script, CONFIG.TIMEOUT_MS)) as string;
 
 		// Clean up temporary file
 		try {
@@ -372,7 +371,7 @@ tell application "Mail"
 	return outputText
 end tell`;
 
-		const result = (await runAppleScript(script)) as string;
+		const result = (await runAppleScriptWithTimeout(script, CONFIG.TIMEOUT_MS)) as string;
 
 		if (result && result.trim()) {
 			return result.split(/\r?\n/).filter(name => name.trim() !== "");
@@ -412,7 +411,7 @@ tell application "Mail"
 	return outputText
 end tell`;
 
-		const result = (await runAppleScript(script)) as string;
+		const result = (await runAppleScriptWithTimeout(script, CONFIG.TIMEOUT_MS)) as string;
 
 		if (result && result.trim()) {
 			return result.split(/\r?\n/).filter(name => name.trim() !== "");
@@ -464,7 +463,7 @@ tell application "Mail"
 	return outputText
 end tell`;
 
-		const result = (await runAppleScript(script)) as string;
+		const result = (await runAppleScriptWithTimeout(script, CONFIG.TIMEOUT_MS)) as string;
 
 		if (result && result.trim()) {
 			return result.split(/\r?\n/).filter(name => name.trim() !== "");
@@ -553,7 +552,7 @@ tell application "Mail"
 end tell
 ${CLEAN_FIELD_HANDLER}`;
 
-		const result = (await runAppleScript(script)) as string;
+		const result = (await runAppleScriptWithTimeout(script, CONFIG.TIMEOUT_MS)) as string;
 
 		if (result && result.startsWith("ERROR:")) {
 			throw new Error(result.substring(6));

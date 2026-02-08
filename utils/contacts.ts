@@ -1,5 +1,4 @@
-import { runAppleScript } from "run-applescript";
-import { sanitizeForAppleScript } from "./sanitize.ts";
+import { sanitizeForAppleScript, runAppleScriptWithTimeout } from "./sanitize.ts";
 
 // Configuration
 const CONFIG = {
@@ -17,7 +16,7 @@ tell application "Contacts"
     return name
 end tell`;
 
-		await runAppleScript(script);
+		await runAppleScriptWithTimeout(script, CONFIG.TIMEOUT_MS);
 		return true;
 	} catch (error) {
 		console.error(
@@ -104,7 +103,7 @@ tell application "Contacts"
     return contactList
 end tell`;
 
-		const result = (await runAppleScript(script)) as any;
+		const result = (await runAppleScriptWithTimeout(script, CONFIG.TIMEOUT_MS)) as any;
 
 		// Convert AppleScript result to our format
 		const resultArray = Array.isArray(result) ? result : result ? [result] : [];
@@ -209,7 +208,7 @@ tell application "Contacts"
     end if
 end tell`;
 
-		const result = (await runAppleScript(script)) as any;
+		const result = (await runAppleScriptWithTimeout(script, CONFIG.TIMEOUT_MS)) as any;
 		const resultArray = Array.isArray(result) ? result : result ? [result] : [];
 
 		// If no matches found with AppleScript, try comprehensive fuzzy matching
@@ -381,7 +380,7 @@ tell application "Contacts"
     return foundName
 end tell`;
 
-		const result = (await runAppleScript(script)) as string;
+		const result = (await runAppleScriptWithTimeout(script, CONFIG.TIMEOUT_MS)) as string;
 
 		if (result && result.trim() !== "") {
 			return result;

@@ -1,5 +1,4 @@
-import { runAppleScript } from 'run-applescript';
-import { sanitizeForAppleScript } from './sanitize.ts';
+import { sanitizeForAppleScript, runAppleScriptWithTimeout } from './sanitize.ts';
 
 // Define types for our calendar events
 interface CalendarEvent {
@@ -76,7 +75,7 @@ tell application "Calendar"
     return name
 end tell`;
 
-        await runAppleScript(script);
+        await runAppleScriptWithTimeout(script, CONFIG.TIMEOUT_MS);
         return true;
     } catch (error) {
         console.error(`Cannot access Calendar app: ${error instanceof Error ? error.message : String(error)}`);
@@ -215,7 +214,7 @@ tell application "Calendar"
 end tell
 ${CLEAN_FIELD_HANDLER}`;
 
-        const result = await runAppleScript(script) as string;
+        const result = await runAppleScriptWithTimeout(script, CONFIG.TIMEOUT_MS) as string;
         return parseEventResults(result);
     } catch (error) {
         console.error(`Error getting events: ${error instanceof Error ? error.message : String(error)}`);
@@ -334,7 +333,7 @@ tell application "Calendar"
 end tell
 ${CLEAN_FIELD_HANDLER}`;
 
-        const result = await runAppleScript(script) as string;
+        const result = await runAppleScriptWithTimeout(script, CONFIG.TIMEOUT_MS) as string;
         return parseEventResults(result);
     } catch (error) {
         console.error(`Error searching events: ${error instanceof Error ? error.message : String(error)}`);
@@ -436,7 +435,7 @@ tell application "Calendar"
     end tell
 end tell`;
 
-        const eventId = await runAppleScript(script) as string;
+        const eventId = await runAppleScriptWithTimeout(script, CONFIG.TIMEOUT_MS) as string;
 
         return {
             success: true,
@@ -473,7 +472,7 @@ tell application "Calendar"
     return "Calendar app opened (event search too slow)"
 end tell`;
 
-        const result = await runAppleScript(script) as string;
+        const result = await runAppleScriptWithTimeout(script, CONFIG.TIMEOUT_MS) as string;
 
         // Check if this looks like a non-existent event ID
         if (eventId.includes("non-existent") || eventId.includes("12345")) {

@@ -1,6 +1,5 @@
-import {runAppleScript} from 'run-applescript';
 import { access } from 'node:fs/promises';
-import { sanitizeForAppleScript, validateHomePath, execSqliteQuery } from './sanitize.ts';
+import { sanitizeForAppleScript, validateHomePath, execSqliteQuery, runAppleScriptWithTimeout } from './sanitize.ts';
 
 // Configuration
 const CONFIG = {
@@ -67,12 +66,12 @@ function normalizePhoneNumber(phone: string): string[] {
 }
 
 async function sendMessage(phoneNumber: string, message: string) {
-    const result = await runAppleScript(`
+    const result = await runAppleScriptWithTimeout(`
 tell application "Messages"
     set targetService to 1st service whose service type = iMessage
     set targetBuddy to buddy "${sanitizeForAppleScript(phoneNumber)}"
     send "${sanitizeForAppleScript(message)}" to targetBuddy
-end tell`);
+end tell`, CONFIG.TIMEOUT_MS);
     return result;
 }
 
@@ -128,7 +127,7 @@ async function requestMessagesAccess(): Promise<{ hasAccess: boolean; message: s
 
         // If no database access, check if Messages app is at least accessible
         try {
-            await runAppleScript('tell application "Messages" to return name');
+            await runAppleScriptWithTimeout('tell application "Messages" to return name', CONFIG.TIMEOUT_MS);
             return {
                 hasAccess: false,
                 message: "Messages app is accessible but database access is required. Please:\n1. Open System Settings > Privacy & Security > Full Disk Access\n2. Add your terminal application (Terminal.app or iTerm.app)\n3. Restart your terminal and try again\n4. Note: This is required to read message history from the Messages database"
@@ -561,7 +560,7 @@ tell application "Messages"
     return "SUCCESS:messages_not_accessible_via_applescript"
 end tell`;
 
-        const result = await runAppleScript(script) as string;
+        const result = await runAppleScriptWithTimeout(script, CONFIG.TIMEOUT_MS) as string;
         
         if (result && result.includes('SUCCESS')) {
             // Return empty array with a note that AppleScript doesn't provide full message access
@@ -585,7 +584,7 @@ tell application "Messages"
     return "SUCCESS:unread_messages_not_accessible_via_applescript"
 end tell`;
 
-        const result = await runAppleScript(script) as string;
+        const result = await runAppleScriptWithTimeout(script, CONFIG.TIMEOUT_MS) as string;
         
         if (result && result.includes('SUCCESS')) {
             // Return empty array with a note that AppleScript doesn't provide full message access

@@ -1,6 +1,5 @@
-import { runAppleScript } from "run-applescript";
 import { unlinkSync } from "node:fs";
-import { sanitizeForAppleScript, createSecureTempFile } from "./sanitize.ts";
+import { sanitizeForAppleScript, createSecureTempFile, runAppleScriptWithTimeout } from "./sanitize.ts";
 
 // Configuration
 const CONFIG = {
@@ -37,7 +36,7 @@ tell application "Notes"
     return name
 end tell`;
 
-		await runAppleScript(script);
+		await runAppleScriptWithTimeout(script, CONFIG.TIMEOUT_MS);
 		return true;
 	} catch (error) {
 		console.error(
@@ -117,7 +116,7 @@ tell application "Notes"
     return notesList
 end tell`;
 
-		const result = (await runAppleScript(script)) as any;
+		const result = (await runAppleScriptWithTimeout(script, CONFIG.TIMEOUT_MS)) as any;
 
 		// Convert AppleScript result to our format
 		const resultArray = Array.isArray(result) ? result : result ? [result] : [];
@@ -189,7 +188,7 @@ tell application "Notes"
     return matchedNotes
 end tell`;
 
-		const result = (await runAppleScript(script)) as any;
+		const result = (await runAppleScriptWithTimeout(script, CONFIG.TIMEOUT_MS)) as any;
 
 		// Convert AppleScript result to our format
 		const resultArray = Array.isArray(result) ? result : result ? [result] : [];
@@ -298,7 +297,7 @@ tell application "Notes"
     end if
 end tell`;
 
-		const result = (await runAppleScript(script)) as string;
+		const result = (await runAppleScriptWithTimeout(script, CONFIG.TIMEOUT_MS)) as string;
 
 		// Clean up temporary file
 		try {
@@ -403,7 +402,7 @@ tell application "Notes"
     return "SUCCESS:" & (count of notesList)
 end tell`;
 
-		const result = (await runAppleScript(script)) as any;
+		const result = (await runAppleScriptWithTimeout(script, CONFIG.TIMEOUT_MS)) as any;
 
 		// Simple success/failure check based on string result
 		if (result && typeof result === "string") {

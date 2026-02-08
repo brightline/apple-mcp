@@ -1,5 +1,4 @@
-import { runAppleScript } from "run-applescript";
-import { sanitizeForAppleScript } from "./sanitize.ts";
+import { sanitizeForAppleScript, runAppleScriptWithTimeout } from "./sanitize.ts";
 
 // Configuration
 const CONFIG = {
@@ -41,7 +40,7 @@ tell application "Reminders"
     return name
 end tell`;
 
-		await runAppleScript(script);
+		await runAppleScriptWithTimeout(script, CONFIG.TIMEOUT_MS);
 		return true;
 	} catch (error) {
 		console.error(
@@ -116,7 +115,7 @@ tell application "Reminders"
     return listArray
 end tell`;
 
-		const result = (await runAppleScript(script)) as any;
+		const result = (await runAppleScriptWithTimeout(script, CONFIG.TIMEOUT_MS)) as any;
 
 		// Convert AppleScript result to our format
 		const resultArray = Array.isArray(result) ? result : result ? [result] : [];
@@ -160,7 +159,7 @@ tell application "Reminders"
     end try
 end tell`;
 
-		const result = (await runAppleScript(script)) as any;
+		const result = (await runAppleScriptWithTimeout(script, CONFIG.TIMEOUT_MS)) as any;
 
 		// For performance reasons, just return empty array with success message
 		// Complex reminder queries are too slow and unreliable
@@ -204,7 +203,7 @@ tell application "Reminders"
     end try
 end tell`;
 
-		const result = (await runAppleScript(script)) as any;
+		const result = (await runAppleScriptWithTimeout(script, CONFIG.TIMEOUT_MS)) as any;
 
 		// For performance reasons, just return empty array
 		// Complex reminder search is too slow and unreliable
@@ -266,7 +265,7 @@ tell application "Reminders"
     end try
 end tell`;
 
-		const result = (await runAppleScript(script)) as string;
+		const result = (await runAppleScriptWithTimeout(script, CONFIG.TIMEOUT_MS)) as string;
 
 		if (result && result.startsWith("SUCCESS:")) {
 			const actualListName = result.replace("SUCCESS:", "");
@@ -321,7 +320,7 @@ tell application "Reminders"
     return "SUCCESS"
 end tell`;
 
-		const result = (await runAppleScript(script)) as string;
+		const result = (await runAppleScriptWithTimeout(script, CONFIG.TIMEOUT_MS)) as string;
 
 		if (result === "SUCCESS") {
 			return {
@@ -367,7 +366,7 @@ tell application "Reminders"
     end try
 end tell`;
 
-		const result = (await runAppleScript(script)) as any;
+		const result = (await runAppleScriptWithTimeout(script, CONFIG.TIMEOUT_MS)) as any;
 
 		// For performance reasons, just return empty array
 		// Complex reminder queries are too slow and unreliable

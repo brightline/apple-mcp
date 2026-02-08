@@ -4,6 +4,7 @@ import { writeFileSync, chmodSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { runAppleScript } from "run-applescript";
 
 const execFileAsync = promisify(execFile);
 
@@ -61,6 +62,27 @@ export function createSecureTempFile(prefix: string, content: string): string {
   const filePath = join(tmpdir(), fileName);
   writeFileSync(filePath, content, { encoding: "utf8", mode: 0o600 });
   return filePath;
+}
+
+/**
+ * Runs an AppleScript with a timeout. If the script does not resolve within
+ * `timeoutMs` milliseconds, the returned promise rejects with a descriptive
+ * error (likely cause: macOS has not granted the required permission to the
+ * host process, so the script blocks on an invisible dialog).
+ */
+export async function runAppleScriptWithTimeout(script: string, timeoutMs: number): Promise<string> {
+	return Promise.race([
+		runAppleScript(script),
+		new Promise<never>((_, reject) =>
+			setTimeout(
+				() => reject(new Error(
+					`AppleScript timed out after ${timeoutMs}ms. This usually means macOS has not granted the required app permission. ` +
+					`Check System Settings > Privacy & Security > Automation.`
+				)),
+				timeoutMs,
+			),
+		),
+	]);
 }
 
 /**

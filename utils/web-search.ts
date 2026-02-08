@@ -1,5 +1,4 @@
-import { runAppleScript } from "run-applescript";
-import { sanitizeForAppleScript } from "./sanitize.ts";
+import { sanitizeForAppleScript, runAppleScriptWithTimeout } from "./sanitize.ts";
 
 // Maximum number of top results to scrape
 const MAX_RESULTS = 3;
@@ -69,41 +68,36 @@ async function performSearch(
 /**
  * Opens Safari with a timeout
  */
-async function openSafariWithTimeout(): Promise<string | void> {
-  return Promise.race([
-    runAppleScript(`
+async function openSafariWithTimeout(): Promise<string> {
+  return runAppleScriptWithTimeout(`
       tell application "Safari"
         activate
         make new document
         set bounds of window 1 to {100, 100, 1200, 900}
       end tell
-    `),
-    new Promise<void>((_, reject) =>
-      setTimeout(() => reject(new Error("Timeout opening Safari")), TIMEOUT),
-    ),
-  ]);
+    `, TIMEOUT);
 }
 
 /**
  * Sets the user agent in Safari
  */
 async function setUserAgent(userAgent: string): Promise<void> {
-  await runAppleScript(`
+  await runAppleScriptWithTimeout(`
     tell application "Safari"
       set the user agent of document 1 to "${sanitizeForAppleScript(userAgent)}"
     end tell
-  `);
+  `, TIMEOUT);
 }
 
 /**
  * Navigates Safari to a URL
  */
 async function navigateToUrl(url: string): Promise<void> {
-  await runAppleScript(`
+  await runAppleScriptWithTimeout(`
     tell application "Safari"
       set URL of document 1 to "${sanitizeForAppleScript(url)}"
     end tell
-  `);
+  `, TIMEOUT);
 }
 
 /**
@@ -147,12 +141,12 @@ async function extractSearchResults(
     return JSON.stringify(results);
   `;
 
-  const resultString = await runAppleScript(`
+  const resultString = await runAppleScriptWithTimeout(`
     tell application "Safari"
       set jsResult to do JavaScript "${sanitizeForAppleScript(jsScript)}" in document 1
       return jsResult
     end tell
-  `);
+  `, TIMEOUT);
 
   try {
     return JSON.parse(resultString);
@@ -246,12 +240,12 @@ async function extractPageContent(): Promise<string> {
     return extractMainContent();
   `;
 
-  const content = await runAppleScript(`
+  const content = await runAppleScriptWithTimeout(`
     tell application "Safari"
       set pageContent to do JavaScript "${sanitizeForAppleScript(jsScript)}" in document 1
       return pageContent
     end tell
-  `);
+  `, TIMEOUT);
 
   // Clean up the content
   return cleanText(content);
@@ -275,11 +269,11 @@ function cleanText(text: string): string {
  */
 async function closeSafari(): Promise<void> {
   try {
-    await runAppleScript(`
+    await runAppleScriptWithTimeout(`
       tell application "Safari"
         close document 1
       end tell
-    `);
+    `, TIMEOUT);
   } catch (error) {
     console.error("Error closing Safari tab:", error);
   }
