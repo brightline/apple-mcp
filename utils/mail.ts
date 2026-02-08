@@ -530,48 +530,37 @@ tell application "Mail"
 
 	try
 		set targetAccount to first account whose name is "${sanitizeForAppleScript(account)}"
-		set acctMailboxes to every mailbox of targetAccount
+		set mb to mailbox "INBOX" of targetAccount
 
-		repeat with mb in acctMailboxes
+		-- Scan recent messages by index (no "count" or "whose")
+		repeat with i from 1 to ${SCAN_PER_MAILBOX}
 			if emailCount >= ${maxEmails} then exit repeat
 
 			try
-				set mbName to name of mb
-				set msgCount to count of messages of mb
-				set checkCount to msgCount
-				if checkCount > ${maxEmails} then set checkCount to ${maxEmails}
+				set msg to message i of mb
+				set msgSubject to my cleanField(subject of msg)
+				set msgSender to my cleanField(sender of msg)
+				set msgDate to my cleanField((date sent of msg) as string)
 
-				repeat with i from 1 to checkCount
-					if emailCount >= ${maxEmails} then exit repeat
+				set isReadStr to "true"
+				if read status of msg is false then set isReadStr to "false"
 
-					try
-						set msg to message i of mb
-						set msgSubject to my cleanField(subject of msg)
-						set msgSender to my cleanField(sender of msg)
-						set msgDate to my cleanField((date sent of msg) as string)
+				set msgContent to "[Content not available]"
+				try
+					set rawContent to content of msg
+					if rawContent is not missing value then
+						if (length of rawContent) > ${CONFIG.MAX_CONTENT_PREVIEW} then
+							set rawContent to (text 1 thru ${CONFIG.MAX_CONTENT_PREVIEW} of rawContent) & "..."
+						end if
+						set msgContent to my cleanField(rawContent)
+					end if
+				end try
 
-						set isReadStr to "true"
-						if read status of msg is false then set isReadStr to "false"
-
-						set msgContent to "[Content not available]"
-						try
-							set rawContent to content of msg
-							if rawContent is not missing value then
-								if (length of rawContent) > ${CONFIG.MAX_CONTENT_PREVIEW} then
-									set rawContent to (text 1 thru ${CONFIG.MAX_CONTENT_PREVIEW} of rawContent) & "..."
-								end if
-								set msgContent to my cleanField(rawContent)
-							end if
-						end try
-
-						set outputText to outputText & msgSubject & tab & msgSender & tab & msgDate & tab & msgContent & tab & isReadStr & tab & my cleanField(mbName) & linefeed
-						set emailCount to emailCount + 1
-					on error
-						-- Skip problematic messages
-					end try
-				end repeat
+				set outputText to outputText & msgSubject & tab & msgSender & tab & msgDate & tab & msgContent & tab & isReadStr & tab & "INBOX" & linefeed
+				set emailCount to emailCount + 1
 			on error
-				-- Skip problematic mailboxes
+				-- Past end of messages
+				exit repeat
 			end try
 		end repeat
 	on error errMsg
