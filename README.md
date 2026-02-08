@@ -117,6 +117,46 @@ Then add this to your `claude_desktop_config.json`:
 
 </details>
 
+### Option 3: Claude Code
+
+```bash
+claude mcp add --transport stdio apple-mcp -- bunx --no-cache apple-mcp@latest
+```
+
+Or to use the Brightline fork:
+
+```bash
+claude mcp add --transport stdio apple-mcp -- bunx --no-cache github:brightline/apple-mcp#main
+```
+
+### Option 4: Brightline Fork (Latest from main)
+
+If you want to run the latest commit from the Brightline fork:
+
+```json
+{
+  "mcpServers": {
+    "apple-mcp": {
+      "command": "bunx",
+      "args": ["--no-cache", "github:brightline/apple-mcp#main"]
+    }
+  }
+}
+```
+
+Or pin to a specific commit:
+
+```json
+{
+  "mcpServers": {
+    "apple-mcp": {
+      "command": "bunx",
+      "args": ["--no-cache", "github:brightline/apple-mcp#859a9c8"]
+    }
+  }
+}
+```
+
 ## 🎬 See It In Action
 
 Here's a step-by-step video walkthrough: https://x.com/DhravyaShah/status/1892694077679763671
