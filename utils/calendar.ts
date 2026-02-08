@@ -32,16 +32,26 @@ const SWIFT_HELPER = join(__dirname, "..", "helpers", "calendar-helper.swift");
 /**
  * Run the Swift EventKit helper with the given arguments.
  * Returns the raw stdout string (JSON).
+ * On failure, throws with the helper's stderr message for actionable diagnostics.
  */
 async function runSwiftHelper(args: string[]): Promise<string> {
-    const { stdout, stderr } = await execFileAsync(
-        "swift", [SWIFT_HELPER, ...args],
-        { timeout: CONFIG.SWIFT_TIMEOUT_MS }
-    );
-    if (stderr) {
-        console.error(`Swift helper stderr: ${stderr}`);
+    try {
+        const { stdout, stderr } = await execFileAsync(
+            "swift", [SWIFT_HELPER, ...args],
+            { timeout: CONFIG.SWIFT_TIMEOUT_MS }
+        );
+        if (stderr) {
+            console.error(`Swift helper stderr: ${stderr}`);
+        }
+        return stdout;
+    } catch (error: unknown) {
+        // execFileAsync errors carry .stderr with the helper's diagnostic output
+        const stderr = (error as { stderr?: string }).stderr?.trim();
+        if (stderr) {
+            throw new Error(stderr);
+        }
+        throw error;
     }
-    return stdout;
 }
 
 /**
@@ -90,21 +100,18 @@ async function requestCalendarAccess(): Promise<{ hasAccess: boolean; message: s
 }
 
 /**
- * Get all calendar names using EventKit via Swift helper
+ * Get all calendar names using EventKit via Swift helper.
+ * Throws on access errors so the caller can surface actionable messages.
  */
 async function getCalendarNames(): Promise<string[]> {
-    try {
-        const stdout = await runSwiftHelper(["list-calendars"]);
-        const calendars: { name: string; type: string; color: string }[] = JSON.parse(stdout);
-        return calendars.map(c => c.name);
-    } catch (error) {
-        console.error(`Error getting calendar names: ${error instanceof Error ? error.message : String(error)}`);
-        return [];
-    }
+    const stdout = await runSwiftHelper(["list-calendars"]);
+    const calendars: { name: string; type: string; color: string }[] = JSON.parse(stdout);
+    return calendars.map(c => c.name);
 }
 
 /**
- * Get calendar events in a specified date range using EventKit via Swift helper
+ * Get calendar events in a specified date range using EventKit via Swift helper.
+ * Throws on access errors so the caller can surface actionable messages.
  */
 async function getEvents(
     limit = 10,
@@ -112,30 +119,26 @@ async function getEvents(
     toDate?: string,
     calendarName?: string
 ): Promise<CalendarEvent[]> {
-    try {
-        console.error("getEvents - Starting to fetch calendar events via EventKit");
+    console.error("getEvents - Starting to fetch calendar events via EventKit");
 
-        const maxEvents = Math.min(limit, CONFIG.MAX_EVENTS);
+    const maxEvents = Math.min(limit, CONFIG.MAX_EVENTS);
 
-        const args: string[] = ["list-events", "--limit", String(maxEvents)];
+    const args: string[] = ["list-events", "--limit", String(maxEvents)];
 
-        if (fromDate) args.push("--from", fromDate);
-        if (toDate) args.push("--to", toDate);
-        if (calendarName) args.push("--calendar", calendarName);
+    if (fromDate) args.push("--from", fromDate);
+    if (toDate) args.push("--to", toDate);
+    if (calendarName) args.push("--calendar", calendarName);
 
-        const stdout = await runSwiftHelper(args);
-        const events: CalendarEvent[] = JSON.parse(stdout);
+    const stdout = await runSwiftHelper(args);
+    const events: CalendarEvent[] = JSON.parse(stdout);
 
-        console.error(`getEvents - Found ${events.length} event(s)`);
-        return events;
-    } catch (error) {
-        console.error(`Error getting events: ${error instanceof Error ? error.message : String(error)}`);
-        return [];
-    }
+    console.error(`getEvents - Found ${events.length} event(s)`);
+    return events;
 }
 
 /**
- * Search for calendar events that match the search text using EventKit via Swift helper
+ * Search for calendar events that match the search text using EventKit via Swift helper.
+ * Throws on access errors so the caller can surface actionable messages.
  */
 async function searchEvents(
     searchText: string,
@@ -144,26 +147,21 @@ async function searchEvents(
     toDate?: string,
     calendarName?: string
 ): Promise<CalendarEvent[]> {
-    try {
-        console.error(`searchEvents - Searching for: "${searchText}" via EventKit`);
+    console.error(`searchEvents - Searching for: "${searchText}" via EventKit`);
 
-        const maxEvents = Math.min(limit, CONFIG.MAX_EVENTS);
+    const maxEvents = Math.min(limit, CONFIG.MAX_EVENTS);
 
-        const args: string[] = ["search-events", "--query", searchText, "--limit", String(maxEvents)];
+    const args: string[] = ["search-events", "--query", searchText, "--limit", String(maxEvents)];
 
-        if (fromDate) args.push("--from", fromDate);
-        if (toDate) args.push("--to", toDate);
-        if (calendarName) args.push("--calendar", calendarName);
+    if (fromDate) args.push("--from", fromDate);
+    if (toDate) args.push("--to", toDate);
+    if (calendarName) args.push("--calendar", calendarName);
 
-        const stdout = await runSwiftHelper(args);
-        const events: CalendarEvent[] = JSON.parse(stdout);
+    const stdout = await runSwiftHelper(args);
+    const events: CalendarEvent[] = JSON.parse(stdout);
 
-        console.error(`searchEvents - Found ${events.length} matching event(s)`);
-        return events;
-    } catch (error) {
-        console.error(`Error searching events: ${error instanceof Error ? error.message : String(error)}`);
-        return [];
-    }
+    console.error(`searchEvents - Found ${events.length} matching event(s)`);
+    return events;
 }
 
 /**

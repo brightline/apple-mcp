@@ -65,30 +65,87 @@ func exitError(_ message: String) -> Never {
 
 // MARK: - EventKit Access
 
-func requestAccess(store: EKEventStore) -> Bool {
-	let semaphore = DispatchSemaphore(value: 0)
-	var granted = false
-
+func ensureAccess(store: EKEventStore) {
+	let status: EKAuthorizationStatus
 	if #available(macOS 14.0, *) {
-		store.requestFullAccessToEvents { g, error in
-			granted = g
-			if let error = error {
-				fputs("EventKit access error: \(error.localizedDescription)\n", stderr)
-			}
-			semaphore.signal()
-		}
+		status = EKEventStore.authorizationStatus(for: .event)
 	} else {
-		store.requestAccess(to: .event) { g, error in
-			granted = g
-			if let error = error {
-				fputs("EventKit access error: \(error.localizedDescription)\n", stderr)
-			}
-			semaphore.signal()
-		}
+		status = EKEventStore.authorizationStatus(for: .event)
 	}
 
-	semaphore.wait()
-	return granted
+	switch status {
+	case .authorized:
+		return // Already have access
+	case .fullAccess:
+		return // macOS 14+ full access granted
+	case .denied:
+		exitError(
+			"Calendar access was denied. To fix:\n" +
+			"1. Open System Settings > Privacy & Security > Calendars\n" +
+			"2. Enable access for your terminal app (e.g. Terminal, iTerm, Warp)\n" +
+			"3. Restart your terminal and try again"
+		)
+	case .restricted:
+		exitError("Calendar access is restricted by a system policy (e.g. MDM profile).")
+	case .notDetermined:
+		// First time — request access
+		let semaphore = DispatchSemaphore(value: 0)
+		var granted = false
+
+		if #available(macOS 14.0, *) {
+			store.requestFullAccessToEvents { g, error in
+				granted = g
+				if let error = error {
+					fputs("EventKit access error: \(error.localizedDescription)\n", stderr)
+				}
+				semaphore.signal()
+			}
+		} else {
+			store.requestAccess(to: .event) { g, error in
+				granted = g
+				if let error = error {
+					fputs("EventKit access error: \(error.localizedDescription)\n", stderr)
+				}
+				semaphore.signal()
+			}
+		}
+
+		semaphore.wait()
+		if !granted {
+			exitError(
+				"Calendar access was not granted. To fix:\n" +
+				"1. Open System Settings > Privacy & Security > Calendars\n" +
+				"2. Enable access for your terminal app\n" +
+				"3. Restart your terminal and try again"
+			)
+		}
+	case .writeOnly:
+		exitError(
+			"Calendar access is write-only — full access is required to read events.\n" +
+			"1. Open System Settings > Privacy & Security > Calendars\n" +
+			"2. Change access for your terminal app from 'Add Events Only' to 'Full Access'\n" +
+			"3. Restart your terminal and try again"
+		)
+	@unknown default:
+		// Future status — try requesting anyway
+		let semaphore = DispatchSemaphore(value: 0)
+		var granted = false
+		if #available(macOS 14.0, *) {
+			store.requestFullAccessToEvents { g, _ in
+				granted = g
+				semaphore.signal()
+			}
+		} else {
+			store.requestAccess(to: .event) { g, _ in
+				granted = g
+				semaphore.signal()
+			}
+		}
+		semaphore.wait()
+		if !granted {
+			exitError("Calendar access denied (unknown authorization status).")
+		}
+	}
 }
 
 // MARK: - Commands
@@ -190,9 +247,7 @@ guard let command = args.first else {
 }
 
 let store = EKEventStore()
-guard requestAccess(store: store) else {
-	exitError("Calendar access denied. Grant access in System Settings > Privacy & Security > Calendars.")
-}
+ensureAccess(store: store)
 
 switch command {
 case "list-events":
