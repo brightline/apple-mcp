@@ -111,6 +111,10 @@ async function requestMailAccess(): Promise<{ hasAccess: boolean; message: strin
 // Max recent messages to scan per mailbox (avoids timeouts on huge mailboxes)
 const SCAN_PER_MAILBOX = 100;
 
+// Delay between per-account AppleScript calls to avoid overwhelming Mail.app
+const INTER_ACCOUNT_DELAY_MS = 3000;
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 /**
  * Build AppleScript to scan a single account's mailbox by index.
  * Used by getUnreadMails and searchMails to issue one AppleScript per account.
@@ -204,9 +208,11 @@ async function getUnreadMails(
 		const accounts = account ? [account] : await getAccounts();
 		const allEmails: EmailMessage[] = [];
 
-		for (const acctName of accounts) {
+		for (let idx = 0; idx < accounts.length; idx++) {
 			if (allEmails.length >= maxEmails) break;
+			if (idx > 0) await delay(INTER_ACCOUNT_DELAY_MS);
 
+			const acctName = accounts[idx];
 			try {
 				const script = buildScanScript({
 					accountName: acctName,
@@ -255,9 +261,11 @@ async function searchMails(
 		const accounts = await getAccounts();
 		const allEmails: EmailMessage[] = [];
 
-		for (const acctName of accounts) {
+		for (let idx = 0; idx < accounts.length; idx++) {
 			if (allEmails.length >= maxEmails) break;
+			if (idx > 0) await delay(INTER_ACCOUNT_DELAY_MS);
 
+			const acctName = accounts[idx];
 			try {
 				const script = buildScanScript({
 					accountName: acctName,
